@@ -15,6 +15,11 @@ Chaque fichier isole un cas que V5 traitait mal ou globalement :
 - ``vector_plan.pdf`` : 1 page de plan vectoriel (> 1000 tracés, 3 étiquettes).
 - ``mixed.pdf`` : texte, puis page scannée, puis texte : le routage doit se
   décider page par page.
+- ``two_up_rotated.pdf`` : 4 pages portrait **tournées de 90°** et imprimées
+  « deux pages côte à côte » (le format des études d'impact wpd), avec un
+  en-tête et un pied par demi-page, et un verso blanc.
+- ``dense_table.pdf`` : 1 page avec un tableau de 600 cellules tracées (50 × 12) :
+  plus de 500 tracés, mais c'est un tableau à lire en Markdown, pas un plan.
 """
 
 from __future__ import annotations
@@ -153,6 +158,61 @@ def build_mixed(path: Path) -> None:
     doc.close()
 
 
+TWO_UP_LEFT = ["Gauche : contexte du site.", "Le site est en plaine agricole."]
+TWO_UP_RIGHT = ["Droite : méthode de mesure.", "Six points fixes ont été instrumentés."]
+
+
+def _put_rotated(page: pymupdf.Page, x: float, y: float, text: str, size: float = 10) -> None:
+    """Écrit ``text`` à la position (x, y) de la page **affichée** d'une page
+    tournée de 90° (les coordonnées d'écriture sont celles de la page non tournée)."""
+    page.insert_text(pymupdf.Point(x, y) * page.derotation_matrix, text, fontsize=size, rotate=90)
+
+
+def build_two_up_rotated(path: Path) -> None:
+    """Page portrait A3 (842 × 1191) tournée de 90° : affichée en paysage, elle
+    porte deux demi-pages (gauche, droite) avec chacune un en-tête de chapitre
+    en haut et un pied « Projet … n/47 » en bas. La page 2 est un verso blanc."""
+    doc = pymupdf.open()
+    numbers = iter(range(10, 20))
+    for p in range(4):
+        page = doc.new_page(width=842, height=1191)
+        page.set_rotation(90)
+        if p == 1:
+            continue  # verso blanc : ni texte, ni image, ni tracé
+
+        for half, x in enumerate((40, 640)):
+            _put_rotated(page, x, 30, "ETAT ACOUSTIQUE INITIAL", 8)
+            _put_rotated(
+                page, x, 820, f"Projet Vent du Nord - Rapport acoustique    {next(numbers)}/47", 7
+            )
+            lines = TWO_UP_LEFT if half == 0 else TWO_UP_RIGHT
+            for i, line in enumerate(lines):
+                _put_rotated(page, x, 120 + 40 * i + 15 * half, f"{line} (page {p + 1})")
+            # Cellule de tableau en bas de demi-page : ne doit pas devenir un pied.
+            _put_rotated(page, x + 200, 790, "0,0", 7)
+    doc.save(path)
+    doc.close()
+
+
+def build_dense_table(path: Path) -> None:
+    """50 lignes × 12 colonnes = 600 cellules tracées, lisibles (6,5 pt)."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=A4.width, height=A4.height)
+    page.insert_text((50, 50), "Tableau 7 : niveaux résiduels par vitesse de vent", fontsize=11)
+    x0, y0, cw, rh = 40, 70, 43, 14
+    for r in range(50):
+        if r == 0:
+            cells = ["Vitesse", *(f"PF{c}" for c in range(1, 12))]
+        else:
+            cells = [f"{r} m/s", *(f"{30 + (r * c) % 25},5" for c in range(1, 12))]
+        for c, cell in enumerate(cells):
+            rect = pymupdf.Rect(x0 + c * cw, y0 + r * rh, x0 + (c + 1) * cw, y0 + (r + 1) * rh)
+            page.draw_rect(rect, color=(0, 0, 0), width=0.3)
+            page.insert_text((rect.x0 + 2, rect.y1 - 4), cell, fontsize=6.5)
+    doc.save(path)
+    doc.close()
+
+
 BUILDERS = {
     "simple.pdf": build_simple,
     "a3_dense.pdf": build_a3_dense,
@@ -160,6 +220,8 @@ BUILDERS = {
     "tables.pdf": build_tables,
     "vector_plan.pdf": build_vector_plan,
     "mixed.pdf": build_mixed,
+    "two_up_rotated.pdf": build_two_up_rotated,
+    "dense_table.pdf": build_dense_table,
 }
 
 
