@@ -21,3 +21,16 @@ models:
       - special_tokens_map.json
       - tokenizer.json
       - tokenizer_config.json
+  bge-reranker-v2-m3:
+    repo: BAAI/bge-reranker-v2-m3
+    revision: 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e
+    role: reranker
+    # Cross-encoder (même famille que BGE-M3, multilingue) : il note chaque
+    # couple question-passage. Le reranker de V5, à révision épinglée.
+    files:
+      - config.json
+      - model.safetensors
+      - sentencepiece.bpe.model
+      - special_tokens_map.json
+      - tokenizer.json
+      - tokenizer_config.json

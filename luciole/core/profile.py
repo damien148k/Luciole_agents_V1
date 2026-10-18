@@ -115,10 +115,29 @@ class EmbeddingSpec(StrictModel):
 
 
 class RetrievalSpec(StrictModel):
+    """Recherche hybride : listes dense (par vecteur nommé) et BM25, fusion
+    RRF, puis reranker sur les ``rerank_candidates`` premiers fusionnés."""
+
     dense_top_n: int = Field(75, ge=1)
     bm25_top_n: int = Field(75, ge=1)
+    dense_vectors: list[Literal["content", "context"]] = Field(
+        default_factory=lambda: ["content", "context"], min_length=1
+    )
     rrf_k: int = Field(60, ge=1)
+    rerank_candidates: int = Field(40, ge=1, description="Fusionnés passés au reranker")
     rerank_top_k: int = Field(8, ge=1)
+    rerank_model: str | None = Field(
+        "bge-reranker-v2-m3", description="Nom dans configs/models.yaml ; None = sans reranker"
+    )
+    expand_to_parent: bool = Field(
+        True, description="Rendre le morceau parent (plus de contexte) du passage trouvé"
+    )
+
+    @model_validator(mode="after")
+    def _candidates(self) -> RetrievalSpec:
+        if self.rerank_candidates < self.rerank_top_k:
+            raise ValueError("rerank_candidates doit être au moins égal à rerank_top_k")
+        return self
 
 
 class IngestionSpec(StrictModel):

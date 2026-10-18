@@ -15,17 +15,21 @@
                                       Indexe une racine de dossiers (Qdrant + OpenSearch démarrés).
   .\DEV.ps1 -Action watch -Root <dossier> -UseCase ventes
                                       Surveille la racine et garde l'index à jour (Ctrl+C pour arrêter).
+  .\DEV.ps1 -Action search -UseCase ventes -Query "question"
+                                      Pose une question à l'index (sens + mots, reranker) et cite les passages.
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "smoke")]
     [string]$Action,
     # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
     [string]$UseCase,
-    # Pour -Action index, watch et smoke : profil matériel (défaut : celui de cette machine).
+    # Pour -Action search : la question posée.
+    [string]$Query,
+    # Pour -Action index, watch, search et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
 
@@ -98,6 +102,15 @@ switch ($Action) {
         $extra = @()
         if ($Hardware) { $extra = @("--hardware", $Hardware) }
         uv run --extra embed python -m luciole.index.watcher $Root --profile $UseCase @extra
+    }
+    "search" {
+        Ensure-Uv
+        if (-not $UseCase -or -not $Query) { throw "Donner -UseCase <cas d'usage> et -Query <question>" }
+        Write-Step "Recherche dans l'index du cas d'usage $UseCase"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        uv run --extra embed python -m luciole.retrieval.search $Query --profile $UseCase @extra
+        if ($LASTEXITCODE -ne 0) { throw "Recherche en échec : voir le message ci-dessus" }
     }
     "smoke" {
         $compose = @("-f", "docker/compose.services.yaml", "-f", "docker/compose.app.yaml")

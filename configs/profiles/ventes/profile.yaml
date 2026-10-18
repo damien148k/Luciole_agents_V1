@@ -62,3 +62,10 @@ retrieval:
   bm25_top_n: 50
   rrf_k: 60
   rerank_top_k: 10
+  # Une liste dense par vecteur nommé (passage seul, titre + passage), plus BM25 ;
+  # les rerank_candidates premiers après fusion RRF passent au reranker.
+  dense_vectors: [content, context]
+  rerank_candidates: 40
+  rerank_model: bge-reranker-v2-m3
+  # Le passage trouvé (enfant) est rendu avec sa section (parent).
+  expand_to_parent: true
