@@ -2,9 +2,11 @@
 
 Un passage (``run``) :
 
-1. parcourt la racine (``scan``), chaque fichier lu une seule fois ;
+1. parcourt la racine (``scan``) ; un document déjà indexé avec la même clé
+   n'est **pas réanalysé** (sa fiche est relue dans le magasin) ;
 2. pour chaque document **nouveau, modifié, ou indexé avec une autre clé**
-   (autre embedder, autre schéma) : découpe, calcule les vecteurs des
+   (autre embedder, autre schéma d'index, autre version du parser, profil
+   de cas d'usage modifié) : découpe, calcule les vecteurs des
    enfants (par lots), puis **remplace** ses points dans Qdrant et OpenSearch
    (suppression par ``document_id`` puis écriture : pas de doublon) ;
 3. synchronise le magasin (fiches ajoutées, remplacées, supprimées), puis y
@@ -24,6 +26,8 @@ En ligne de commande (services de ``docker/compose.services.yaml`` lancés) :
 from __future__ import annotations
 
 import argparse
+import hashlib
+import json
 import sys
 import time
 from collections.abc import Callable
@@ -36,6 +40,7 @@ from luciole.core.chunk import Chunk
 from luciole.core.document import ParsedDocument
 from luciole.core.dossier import DocumentRecord
 from luciole.core.profile import UseCaseProfile
+from luciole.core.versions import PARSER_VERSION
 from luciole.index.embedder import Embedder, index_key
 from luciole.index.opensearch import OpenSearchIndex
 from luciole.index.qdrant import QdrantIndex
@@ -63,6 +68,18 @@ class PipelineReport:
         )
 
 
+def document_key(profile: UseCaseProfile, embedder: Embedder) -> str:
+    """Clé notée pour chaque document indexé : la clé d'index, la version du
+    parser et l'empreinte de ce qui, dans le profil, change les fiches ou les
+    morceaux (entités, règles d'ingestion, découpage, modèle). Changer une
+    taille de morceau réindexe donc tout, sans changer de collection."""
+    relevant = profile.model_dump(
+        mode="json", include={"entities", "ingestion", "chunking", "embedding"}
+    )
+    digest = hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:8]
+    return f"{index_key(embedder)}/parser{PARSER_VERSION}/profile-{digest}"
+
+
 class IngestionPipeline:
     def __init__(
         self,
@@ -88,7 +105,7 @@ class IngestionPipeline:
         self.vectors = vectors
         self.lexical = lexical
         self.batch_size = max(1, batch_size)
-        self.key = index_key(embedder)
+        self.key = document_key(profile, embedder)
 
     # ------------------------------------------------------------------
     def run(self, root: str | Path) -> PipelineReport:
@@ -99,13 +116,16 @@ class IngestionPipeline:
         pending: dict[str, list[Chunk]] = {}
         skipped: list[str] = []
 
+        def reuse(document_id: str) -> DocumentRecord | None:
+            if self.store.indexed_with(document_id) != self.key:
+                return None
+            skipped.append(document_id)
+            return self.store.get_document(document_id)
+
         def on_document(record: DocumentRecord, parsed: ParsedDocument) -> None:
-            if self.store.indexed_with(record.document_id) == self.key:
-                skipped.append(record.document_id)
-                return
             pending[record.document_id] = self.index_document(record, parsed)
 
-        result = scan(root, self.profile, self.registry, on_document=on_document)
+        result = scan(root, self.profile, self.registry, on_document=on_document, reuse=reuse)
         sync = self.store.sync(result)
         for document_id, chunks in pending.items():
             self.store.replace_chunks(document_id, chunks, self.key)
@@ -180,14 +200,43 @@ def _hardware(name: str | None, root: Path):
     return profiles[name]
 
 
-def main(
-    argv: list[str] | None = None,
+def parser(prog: str, description: str) -> argparse.ArgumentParser:
+    """Options communes au pipeline et au watcher."""
+    cli = argparse.ArgumentParser(prog=prog, description=description)
+    cli.add_argument("root", help="dossier racine (un sous-répertoire par dossier)")
+    cli.add_argument("--profile", required=True, help="nom du cas d'usage (mrae, ventes…)")
+    cli.add_argument("--profiles-dir", default="configs/profiles")
+    cli.add_argument("--hardware", help="profil matériel (défaut : celui de cette machine)")
+    cli.add_argument("--hardware-dir", default="configs/hardware")
+    cli.add_argument("--models", default="configs/models.yaml", help="liste des modèles")
+    cli.add_argument("--store", help="magasin SQLite (défaut : data/<profil>.db)")
+    cli.add_argument("--no-opensearch", action="store_true", help="recherche par le sens seulement")
+    return cli
+
+
+@dataclass
+class Context:
+    profile: UseCaseProfile
+    store_path: Path
+    store: MetadataStore
+    pipeline: IngestionPipeline
+
+    def __enter__(self) -> Context:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.store.close()
+
+
+def build(
+    args: argparse.Namespace,
     *,
     embedder_factory: Callable[..., Embedder] | None = None,
     qdrant=None,
     opensearch=None,
-) -> int:
-    """``embedder_factory(spec, hardware)`` et les clients remplacent le vrai
+) -> Context:
+    """Profil, modèle, index et magasin à partir des options.
+    ``embedder_factory(spec, hardware)`` et les clients remplacent le vrai
     modèle et les vrais services dans les tests."""
     from luciole.core.model_files import load_manifest
     from luciole.core.profile import load_profile
@@ -195,23 +244,6 @@ def main(
     from luciole.index.embedder import index_name
     from luciole.ingestion.registry import default_registry
     from luciole.ingestion.tokenizer import load_tokenizer
-
-    parser = argparse.ArgumentParser(
-        prog="python -m luciole.index.pipeline",
-        description="Indexe une racine de dossiers (Qdrant + OpenSearch) ; "
-        "les fichiers inchangés ne sont pas recalculés.",
-    )
-    parser.add_argument("root", help="dossier racine (un sous-répertoire par dossier)")
-    parser.add_argument("--profile", required=True, help="nom du cas d'usage (mrae, ventes…)")
-    parser.add_argument("--profiles-dir", default="configs/profiles")
-    parser.add_argument("--hardware", help="profil matériel (défaut : celui de cette machine)")
-    parser.add_argument("--hardware-dir", default="configs/hardware")
-    parser.add_argument("--models", default="configs/models.yaml", help="liste des modèles")
-    parser.add_argument("--store", help="magasin SQLite (défaut : data/<profil>.db)")
-    parser.add_argument(
-        "--no-opensearch", action="store_true", help="recherche par le sens seulement"
-    )
-    args = parser.parse_args(argv)
 
     profile = load_profile(Path(args.profiles_dir) / args.profile).profile
     hardware = _hardware(args.hardware, Path(args.hardware_dir))
@@ -233,18 +265,29 @@ def main(
         f"Profil {profile.name}, machine {hardware.name} ({getattr(embedder, 'device', '?')}), "
         f"modèle {embedder.name}, index {name}, magasin {store_path}"
     )
-    with MetadataStore(store_path, profile) as store:
-        pipeline = IngestionPipeline(
-            profile,
-            store,
-            default_registry(),
-            chunker,
-            embedder,
-            vectors,
-            lexical,
-            batch_size=hardware.embedding_batch_size,
-        )
-        report = pipeline.run(args.root)
+    store = MetadataStore(store_path, profile)
+    pipeline = IngestionPipeline(
+        profile,
+        store,
+        default_registry(),
+        chunker,
+        embedder,
+        vectors,
+        lexical,
+        batch_size=hardware.embedding_batch_size,
+    )
+    return Context(profile, store_path, store, pipeline)
+
+
+def main(argv: list[str] | None = None, **services) -> int:
+    cli = parser(
+        "python -m luciole.index.pipeline",
+        "Indexe une racine de dossiers (Qdrant + OpenSearch) ; "
+        "les fichiers inchangés ne sont pas recalculés.",
+    )
+    args = cli.parse_args(argv)
+    with build(args, **services) as ctx:
+        report = ctx.pipeline.run(args.root)
     print(report.summary())
     for skipped in report.ignored:
         print(f"  ignoré : {skipped.relative_path} ({skipped.reason})")

@@ -24,7 +24,8 @@ EMBEDDING_PROFILE_VERSION = 1
 #: Tables du magasin structuré (``luciole.store``). Un magasin d'une autre
 #: version est refusé à l'ouverture plutôt que lu de travers.
 #: 2 : table des morceaux et colonne ``indexed_with`` (étape 3).
-STORE_SCHEMA_VERSION = 2
+#: 3 : colonne ``dossier_hints`` (passage incrémental du watcher).
+STORE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)

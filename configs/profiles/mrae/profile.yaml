@@ -26,6 +26,8 @@ entities:
       description: Nature de la pièce
 ingestion:
   dossier_file: dossier.yaml
+  # Secondes entre deux relevés du watcher.
+  watch_interval_s: 10
   # « …_tome_1_volet_projet.pdf », « Tome 4 - Milieu naturel.pdf » donnent
   # le tome (mesuré sur de vrais noms de fichiers d'études d'impact).
   filename_patterns:
