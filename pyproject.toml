@@ -18,6 +18,9 @@ dependencies = [
     "tokenizers>=0.21,<0.23",
     "qdrant-client>=1.19.1,<1.20",
     "opensearch-py>=3.2,<4",
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.32,<1",
+    "httpx>=0.28.1,<0.29",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +52,10 @@ markers = [
     "integration: tests qui demandent Docker ou un GPU (machines de Damien)",
 ]
 addopts = "-m 'not integration'"
+filterwarnings = [
+    # starlette 1.9 annonce le remplacement de httpx par httpx2 dans TestClient.
+    "ignore:Using `httpx` with `starlette.testclient`:UserWarning",
+]
 
 [tool.ruff]
 line-length = 100

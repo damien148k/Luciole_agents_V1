@@ -136,11 +136,13 @@ class HybridRetriever:
         document_ids: Sequence[str] | None = None,
         conditions: list[Condition] | None = None,
         top_k: int | None = None,
+        spec: RetrievalSpec | None = None,
     ) -> RetrievalResult:
+        """``spec`` remplace les réglages du profil pour cet appel (passe élargie)."""
         query = query.strip()
         if not query:
             raise ValueError("retrieve : question vide")
-        spec = self.spec
+        spec = spec or self.spec
         top_k = top_k or spec.rerank_top_k
         allowed = self._allowed(document_ids, conditions)
         result = RetrievalResult(

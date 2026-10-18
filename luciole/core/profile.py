@@ -147,6 +147,53 @@ class RetrievalSpec(StrictModel):
         return self
 
 
+class DeepSearchSpec(StrictModel):
+    """Passe élargie, relancée quand la réponse esquive : plus de candidats."""
+
+    dense_top_n: int = Field(80, ge=1)
+    bm25_top_n: int = Field(80, ge=1)
+    rerank_candidates: int = Field(60, ge=1)
+    rerank_top_k: int = Field(20, ge=1)
+
+
+class GuardsSpec(StrictModel):
+    """Seuils des gardes déterministes (``luciole.generation.guards``), repris
+    de V5 (``query2`` v3.6, réglages des campagnes de septembre 2026)."""
+
+    evasion_max_position: float = Field(0.15, gt=0, le=1)
+    evasion_min_length: int = Field(700, ge=0)
+    degenerate_min_lines: int = Field(8, ge=1)
+    degenerate_min_ratio: float = Field(0.6, gt=0, le=1)
+    degenerate_max_repeats: int = Field(4, ge=2)
+    page_window: int = Field(300, ge=10, description="Caractères lus avant une page citée")
+    number_min_digits: int = Field(2, ge=1)
+    retry_on_evasion: bool = Field(True, description="Esquive : une passe élargie")
+    retry_on_loop: bool = Field(True, description="Tronquée ou dégénérée : une relance")
+    flag_in_answer: bool = Field(
+        True, description="Noter en fin de réponse les pages et nombres sans extrait"
+    )
+
+
+class GenerationSpec(StrictModel):
+    """Appel du LLM local. Le modèle et la fenêtre viennent du profil matériel ;
+    ici, ce qui rend la réponse reproductible et bornée."""
+
+    temperature: float = Field(0.0, ge=0)
+    seed: int = 42
+    max_tokens: int = Field(1500, ge=64, description="Tokens générés au plus")
+    #: Options Ollama de chaque appel, et de la relance d'une réponse qui boucle.
+    options: dict[str, float | int] = Field(
+        default_factory=lambda: {"repeat_penalty": 1.05, "repeat_last_n": 256}
+    )
+    retry_options: dict[str, float | int] = Field(
+        default_factory=lambda: {"repeat_penalty": 1.1, "repeat_last_n": 256}
+    )
+    #: Tokens réservés aux consignes et à la question dans la fenêtre du LLM.
+    prompt_reserve_tokens: int = Field(1500, ge=0)
+    deep: DeepSearchSpec = Field(default_factory=DeepSearchSpec)
+    guards: GuardsSpec = Field(default_factory=GuardsSpec)
+
+
 class IngestionSpec(StrictModel):
     """Comment reconnaître les dossiers et lire les métadonnées par règles.
 
@@ -194,6 +241,7 @@ class UseCaseProfile(StrictModel):
     chunking: ChunkingSpec = Field(default_factory=ChunkingSpec)
     embedding: EmbeddingSpec = Field(default_factory=EmbeddingSpec)
     retrieval: RetrievalSpec = Field(default_factory=RetrievalSpec)
+    generation: GenerationSpec = Field(default_factory=GenerationSpec)
 
     @model_validator(mode="after")
     def _ingestion_matches_entities(self) -> UseCaseProfile:
