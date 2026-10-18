@@ -23,7 +23,8 @@ PARSER_VERSION = 1
 EMBEDDING_PROFILE_VERSION = 1
 #: Tables du magasin structuré (``luciole.store``). Un magasin d'une autre
 #: version est refusé à l'ouverture plutôt que lu de travers.
-STORE_SCHEMA_VERSION = 1
+#: 2 : table des morceaux et colonne ``indexed_with`` (étape 3).
+STORE_SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
