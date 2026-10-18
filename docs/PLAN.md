@@ -77,7 +77,7 @@ Structure, `pyproject.toml` + `uv.lock`, CI, `DEV.ps1`, docs de cadrage, `DECISI
 `Dossier`, extraction de métadonnées selon le schéma du profil (règles + LLM à sortie typée), magasin structuré, chunking en tokens, parent-enfant, `document_id` sans collision. Ajout après l'étape 1 : chaque chunk porte aussi le **numéro de page imprimé** quand il existe (les études d'impact impriment deux pages « 14/47 », « 15/47 » par page PDF), pour que les citations parlent le langage du lecteur.
 **Porte :** deux fichiers de même nom coexistent ; les champs d'une réunion fictive sont extraits et validés ; aucun chunk ne dépasse la limite du tokenizer.
 
-### Étape 3 — Embedding, index, watcher, multi-architecture (3 PR)
+### Étape 3 — Embedding, index, watcher, multi-architecture (4 PR)
 Embedder BGE-M3 (dense `content` + `context`), Qdrant vecteurs nommés, OpenSearch BM25, pipeline, watcher réécrit pour passer les tests portés, images Docker `amd64` + `arm64`, `DEV.ps1 -Action smoke`. Ajout après l'étape 2 : les fichiers du modèle (poids et `tokenizer.json`) sont récupérés une fois à une **révision épinglée**, rangés dans `LUCIOLE_MODELS_DIR`, et `smoke` vérifie leur présence ; l'embedding prend le `embed_text` des morceaux enfants (contexte + passage) et le pipeline se branche sur `scan(..., on_document=...)` pour ne lire chaque fichier qu'une fois.
 **Porte (3080 Ti, puis GX10 si disponible) :** ingestion d'un dossier de test, réingestion sans doublon, suppression propre, test de fumée vert.
 

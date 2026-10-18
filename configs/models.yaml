@@ -1,0 +1,23 @@
+# Modèles locaux, récupérés une fois par « .\DEV.ps1 -Action models » (en
+# ligne, préparation de la machine) à une révision épinglée, puis lus depuis
+# LUCIOLE_MODELS_DIR/<dépôt>/ (défaut : models/). Changer une révision change
+# le nom de l'embedder, donc la clé d'index : tout est réindexé.
+models:
+  bge-m3:
+    repo: BAAI/bge-m3
+    revision: 5617a9f61b028005a4858fdac845db406aefb181
+    role: embedding
+    # Vecteur dense seulement (pooling CLS, normalisé). Les poids sparse
+    # (sparse_linear.pt) et ColBERT (colbert_linear.pt) ne sont pas récupérés :
+    # aucun code ne les charge (leçon de V5).
+    files:
+      - config.json
+      - config_sentence_transformers.json
+      - modules.json
+      - sentence_bert_config.json
+      - 1_Pooling/config.json
+      - pytorch_model.bin
+      - sentencepiece.bpe.model
+      - special_tokens_map.json
+      - tokenizer.json
+      - tokenizer_config.json

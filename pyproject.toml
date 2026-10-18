@@ -25,6 +25,10 @@ dependencies = [
 layout = ["pymupdf-layout>=1.26,<2"]
 # OCR : tire PyTorch, installé par le profil matériel (Dockerfile), jamais en CI.
 ocr = ["easyocr>=1.7.1,<2"]
+# Embedder réel (BGE-M3) : PyTorch + sentence-transformers, jamais en CI.
+# PyTorch de PyPI : CUDA inclus sous Linux (images Docker), processeur seul
+# sous Windows.
+embed = ["sentence-transformers>=6.1,<7", "torch>=2.14,<3"]
 
 [dependency-groups]
 dev = [

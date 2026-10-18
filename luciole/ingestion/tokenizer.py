@@ -9,7 +9,8 @@ le contrat ``TokenCounter`` ; en production c'est le tokenizer du modèle
 Où le fichier est cherché, dans l'ordre :
 
 1. le chemin donné, s'il existe (un ``tokenizer.json`` ou son dossier) ;
-2. ``$LUCIOLE_MODELS_DIR/<organisation>/<modèle>/`` ;
+2. ``$LUCIOLE_MODELS_DIR/<organisation>/<modèle>/`` (défaut ``models/``), là
+   où ``.\\DEV.ps1 -Action models`` range les modèles à révision épinglée ;
 3. le cache Hugging Face (``$HF_HUB_CACHE``, ``$HF_HOME/hub`` ou
    ``~/.cache/huggingface/hub``), là où V5 et ``sentence-transformers`` ont
    déjà rangé BGE-M3.
@@ -21,6 +22,8 @@ import json
 import os
 from pathlib import Path
 from typing import Protocol, runtime_checkable
+
+from luciole.core.model_files import models_dir
 
 
 @runtime_checkable
@@ -83,8 +86,7 @@ def candidate_paths(name_or_path: str) -> list[Path]:
     out: list[Path] = []
     given = Path(name_or_path).expanduser()
     out.append(given if given.suffix == ".json" else given / "tokenizer.json")
-    if os.environ.get("LUCIOLE_MODELS_DIR"):
-        out.append(Path(os.environ["LUCIOLE_MODELS_DIR"]) / name_or_path / "tokenizer.json")
+    out.append(models_dir() / name_or_path / "tokenizer.json")
     if "/" in name_or_path and not given.is_absolute():
         repo = "models--" + name_or_path.replace("/", "--")
         for cache in _hf_cache_dirs():

@@ -39,6 +39,9 @@ chunking:
   parent_size_tokens: 1536
   max_tokens: 2500
   tokenizer: BAAI/bge-m3
+# Modèle d'embedding : un nom de configs/models.yaml (révision épinglée).
+embedding:
+  model: bge-m3
 retrieval:
   dense_top_n: 75
   bm25_top_n: 75

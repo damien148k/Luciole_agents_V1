@@ -237,3 +237,46 @@ def test_correspondance_opensearch_stricte():
 def test_magasin_refuse_des_morceaux_orphelins(env):
     with pytest.raises(KeyError):
         env.store.replace_chunks("inconnu", [], "cle")
+
+
+def test_ligne_de_commande(tmp_path, monkeypatch, capsys):
+    from test_chunking import _save_tokenizer
+
+    from luciole.index.pipeline import main
+
+    monkeypatch.setenv("LUCIOLE_MODELS_DIR", str(tmp_path / "modeles"))
+    _save_tokenizer(tmp_path / "modeles" / "BAAI" / "bge-m3", max_length=8192)
+    root = tmp_path / "ventes"
+    shutil.copytree(ROOT / "tests" / "corpus" / "ventes", root)
+    (root / "a-la-racine.md").write_text("Hors dossier.", encoding="utf-8")
+    seen = {}
+
+    def factory(spec, hardware):
+        seen["spec"], seen["hardware"] = spec, hardware
+        return FakeEmbedder()
+
+    qdrant, opensearch = QdrantClient(":memory:"), FakeOpenSearch()
+    argv = [
+        str(root),
+        "--profile",
+        "ventes",
+        "--profiles-dir",
+        str(ROOT / "configs" / "profiles"),
+        "--hardware",
+        "cpu",
+        "--hardware-dir",
+        str(ROOT / "configs" / "hardware"),
+        "--models",
+        str(ROOT / "configs" / "models.yaml"),
+        "--store",
+        str(tmp_path / "data" / "ventes.db"),
+    ]
+    run = {"embedder_factory": factory, "qdrant": qdrant, "opensearch": opensearch}
+    assert main(argv, **run) == 0
+    out = capsys.readouterr().out
+    assert seen["spec"].repo == "BAAI/bge-m3" and seen["hardware"].name == "cpu"
+    assert "5 document(s) indexé(s)" in out
+    assert "ignoré : a-la-racine.md (fichier hors de tout dossier" in out
+    assert main(argv, **run) == 0
+    again = capsys.readouterr().out
+    assert "0 document(s) indexé(s)" in again and "5 déjà à jour" in again
