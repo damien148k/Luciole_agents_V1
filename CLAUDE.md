@@ -83,3 +83,8 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 
 - Les tailles de morceaux se vérifient avec le tokenizer réel, mais les tests unitaires utilisent un compteur factice : le conteneur cloud de Claude ne joint pas huggingface.co, seule la machine de Damien peut lancer les tests `integration` avec BGE-M3.
 - Une valeur de métadonnée invalide est signalée, jamais corrigée ni devinée ; un dépassement de taille lève une erreur, jamais une troncature silencieuse.
+
+## Leçons de l'étape 3
+
+- Le GPU dans Docker demande les capacités `compute` (CUDA) et `utility` (nvidia-smi) : nvidia-smi qui marche dans le conteneur ne prouve pas que PyTorch voit le GPU.
+- Le cache de uv se monte pendant la construction (`--mount=type=cache`), sinon chaque bibliothèque CUDA est copiée deux fois dans l'image.
