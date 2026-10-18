@@ -57,16 +57,26 @@ def llm(machine):
     return OllamaLLM(machine.llm_model, num_ctx=machine.llm_num_ctx)
 
 
-def test_reponse_sourcee(indexed, llm, machine):  # noqa: F811
-    prompts = load_prompts(ROOT / "configs" / "profiles" / "ventes")
-    answerer = Answerer(VENTES, prompts, indexed, llm, machine)
-    result = answerer.answer("Pourquoi l'atelier Dubois a-t-il reporté son achat ?")
+QUESTION = "Pourquoi l'atelier Dubois a-t-il reporté son achat ?"
+
+
+def check(result):
     print(f"\n{result.answer}\n\nVerdict {result.verdict}, confiance {result.confidence}")
     print(f"Gardes : {result.guards.to_dict()}")
     assert result.verdict in ("SUFFISANT", "PARTIEL") and not result.guards.evasive
     assert "atelier-dubois/reunion-3.transcript.md" in result.to_dict()["sources_used"]
     flat = result.answer.lower()
     assert any(w in flat for w in ("douze mille", "12 000", "12000", "budget", "embauche"))
-    # Même question, même graine, température 0 : même réponse.
-    again = answerer.answer("Pourquoi l'atelier Dubois a-t-il reporté son achat ?")
-    assert again.answer == result.answer
+
+
+def test_reponse_sourcee(indexed, llm, machine):  # noqa: F811
+    """Deux appels de suite doivent tous deux passer les mêmes contrôles.
+
+    Le texte n'est pas comparé au caractère près : le 2026-10-18 sur la 3080 Ti,
+    même graine et température 0, le second appel a rendu une formulation
+    différente (Ollama réutilise le début du prompt déjà calculé, et les calculs
+    sur GPU ne sont pas identiques bit à bit). Le banc d'essai mesure ce bruit."""
+    prompts = load_prompts(ROOT / "configs" / "profiles" / "ventes")
+    answerer = Answerer(VENTES, prompts, indexed, llm, machine)
+    check(answerer.answer(QUESTION))
+    check(answerer.answer(QUESTION))
