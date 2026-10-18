@@ -74,7 +74,7 @@ Structure, `pyproject.toml` + `uv.lock`, CI, `DEV.ps1`, docs de cadrage, `DECISI
 **Porte :** tests verts sur le corpus ; sur une page A3 dense, texte récupéré ≥ V5.
 
 ### Étape 2 — Dossiers, métadonnées typées, chunking (2 PR)
-`Dossier`, extraction de métadonnées selon le schéma du profil (règles + LLM à sortie typée), magasin structuré, chunking en tokens, parent-enfant, `document_id` sans collision.
+`Dossier`, extraction de métadonnées selon le schéma du profil (règles + LLM à sortie typée), magasin structuré, chunking en tokens, parent-enfant, `document_id` sans collision. Ajout après l'étape 1 : chaque chunk porte aussi le **numéro de page imprimé** quand il existe (les études d'impact impriment deux pages « 14/47 », « 15/47 » par page PDF), pour que les citations parlent le langage du lecteur.
 **Porte :** deux fichiers de même nom coexistent ; les champs d'une réunion fictive sont extraits et validés ; aucun chunk ne dépasse la limite du tokenizer.
 
 ### Étape 3 — Embedding, index, watcher, multi-architecture (3 PR)
@@ -100,7 +100,7 @@ Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.p
 ## 7. Avancement
 
 - [x] Étape 0
-- [ ] Étape 1
+- [x] Étape 1 (2026-10-18, PR #2 à #6)
 - [ ] Étape 2
 - [ ] Étape 3
 - [ ] Étape 4
