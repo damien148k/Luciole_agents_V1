@@ -14,6 +14,7 @@ from luciole.core.model_files import fetch, load_manifest
 from luciole.core.profile import RetrievalSpec, load_profile
 from luciole.retrieval.fusion import rrf
 from luciole.retrieval.hybrid import HybridRetriever
+from luciole.retrieval.lot import is_secondary, is_table_of_contents, strip_accents
 from luciole.retrieval.reranker import LocalReranker
 from luciole.retrieval.search import main as search_main
 from luciole.store.sqlite import Condition
@@ -249,3 +250,58 @@ def test_ligne_de_commande(env, capsys):
     )
     out = capsys.readouterr().out
     assert "0 document(s) permis" in out and "Aucun passage." in out
+
+
+# --- règles du lot (V5 v3.6) ----------------------------------------------
+TOC = """Sommaire
+3.1 Contexte réglementaire ........ 12
+3.2 Milieu physique ........ 18
+3.2.1 Géologie ........ 19
+3.2.2 Hydrologie ........ 23
+Carte 12 : Réseau hydrographique 24
+Figure 4 – Coupe géologique (page 20)
+"""
+
+
+def test_sommaire_reconnu():
+    assert is_table_of_contents(TOC)
+    prose = "La MRAe recommande de compléter l'analyse.\n" * 6
+    assert not is_table_of_contents(prose)
+    assert not is_table_of_contents(
+        "3.1 Contexte ........ 12\n3.2 Milieu ........ 18"
+    )  # trop court
+    mixed = TOC + "\n".join(f"Phrase de contenu numéro {i} sans page." for i in range(20))
+    assert not is_table_of_contents(mixed)  # moins de 40 % de lignes de sommaire
+
+
+def test_documents_secondaires():
+    patterns = ["RNT", "resume_non_technique", "résumé non technique"]
+    assert is_secondary("Beaumont_RNT_v2.pdf", patterns)
+    assert is_secondary("Résumé non technique.pdf", patterns)
+    assert is_secondary("04_resume_non_technique.pdf", patterns)
+    assert not is_secondary("Tome_4_etude_impact.pdf", patterns)
+    assert not is_secondary("x.pdf", [""])
+    assert strip_accents("Résumé l’étude") == "Resume l'etude"
+
+
+def test_lot_sans_sommaire_et_secondaires_plafonnes(env, monkeypatch):
+    big = {"rerank_top_k": 50, "rerank_candidates": 50}
+    free = retriever(env, RetrievalSpec(**big)).retrieve(QUERY)
+    files = [p.unit.file_name for p in free.passages]
+    assert files.count("reunion-3.transcript.md") == 2  # deux parents dans ce fichier
+
+    spec = RetrievalSpec(**big, secondary_documents=["reunion-3"], secondary_cap=1)
+    capped = retriever(env, spec).retrieve(QUERY)
+    assert [p.unit.file_name for p in capped.passages].count("reunion-3.transcript.md") == 1
+    assert capped.capped_secondary >= 1 and len(capped.passages) == len(free.passages) - 1
+    # Plafond à 0 : pas de plafond.
+    spec = RetrievalSpec(**big, secondary_documents=["reunion-3"], secondary_cap=0)
+    assert retriever(env, spec).retrieve(QUERY).capped_secondary == 0
+
+    monkeypatch.setattr(
+        "luciole.retrieval.hybrid.is_table_of_contents", lambda text: "Inès" in text
+    )
+    result = retriever(env, RetrievalSpec(**big)).retrieve(QUERY)
+    assert result.skipped_toc > 0 and all("Inès" not in p.hit.text for p in result.passages)
+    off = retriever(env, RetrievalSpec(**big, exclude_toc=False)).retrieve(QUERY)
+    assert off.skipped_toc == 0

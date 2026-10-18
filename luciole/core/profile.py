@@ -132,6 +132,13 @@ class RetrievalSpec(StrictModel):
     expand_to_parent: bool = Field(
         True, description="Rendre le morceau parent (plus de contexte) du passage trouvé"
     )
+    exclude_toc: bool = Field(True, description="Écarter les passages de sommaire")
+    secondary_documents: list[str] = Field(
+        default_factory=list, description="Motifs de nom de fichier des documents secondaires"
+    )
+    secondary_cap: int = Field(
+        0, ge=0, description="Passages au plus des documents secondaires par lot (0 = sans plafond)"
+    )
 
     @model_validator(mode="after")
     def _candidates(self) -> RetrievalSpec:

@@ -10,6 +10,8 @@
    lit ``Chunk.embed_text`` (titre et section, puis passage).
 4. Chaque passage remonte à son morceau parent (plus de contexte pour la
    réponse) ; deux enfants du même parent n'en font qu'un, le mieux classé.
+5. Règles du lot (``lot.py``) : passages de sommaire écartés, documents
+   secondaires plafonnés ; les places libérées vont aux candidats suivants.
 
 Les morceaux sont relus dans le magasin : un point d'index que le magasin ne
 connaît plus (index en retard) est écarté et compté, jamais rendu.
@@ -26,6 +28,7 @@ from luciole.index.embedder import Embedder
 from luciole.index.opensearch import OpenSearchIndex
 from luciole.index.qdrant import QdrantIndex
 from luciole.retrieval.fusion import rrf
+from luciole.retrieval.lot import is_secondary, is_table_of_contents
 from luciole.retrieval.reranker import Reranker
 from luciole.store.sqlite import Condition, MetadataStore
 
@@ -77,6 +80,9 @@ class RetrievalResult:
     allowed_documents: int | None = None
     #: Points d'index inconnus du magasin, écartés.
     stale: int = 0
+    #: Passages de sommaire écartés, et passages secondaires au-delà du plafond.
+    skipped_toc: int = 0
+    capped_secondary: int = 0
     reranker: str | None = None
 
     def trace(self) -> dict:
@@ -87,6 +93,8 @@ class RetrievalResult:
             "reranked": self.reranked,
             "allowed_documents": self.allowed_documents,
             "stale": self.stale,
+            "skipped_toc": self.skipped_toc,
+            "capped_secondary": self.capped_secondary,
             "reranker": self.reranker,
             "passages": [p.to_dict() | {"text": None} for p in self.passages],
         }
@@ -179,8 +187,18 @@ class HybridRetriever:
             order = list(range(len(candidates)))
 
         seen: set[str] = set()
+        secondary = 0
+        cap = spec.secondary_cap if spec.secondary_documents else 0
         for i in order:
             chunk, score, ranks = candidates[i]
+            if spec.exclude_toc and is_table_of_contents(chunk.text):
+                result.skipped_toc += 1
+                continue
+            if cap and is_secondary(chunk.file_name, spec.secondary_documents):
+                if secondary >= cap:
+                    result.capped_secondary += 1
+                    continue
+                secondary += 1
             unit = chunk
             if spec.expand_to_parent and chunk.parent_id:
                 unit = self.store.get_chunk(chunk.parent_id) or chunk

@@ -69,3 +69,4 @@ retrieval:
   rerank_model: bge-reranker-v2-m3
   # Le passage trouvé (enfant) est rendu avec sa section (parent).
   expand_to_parent: true
+  exclude_toc: true
