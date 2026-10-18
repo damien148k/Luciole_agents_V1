@@ -49,3 +49,16 @@ retrieval:
   bm25_top_n: 75
   rrf_k: 60
   rerank_top_k: 8
+  # Une liste dense par vecteur nommé (passage seul, titre + passage), plus BM25 ;
+  # les rerank_candidates premiers après fusion RRF passent au reranker.
+  dense_vectors: [content, context]
+  rerank_candidates: 40
+  rerank_model: bge-reranker-v2-m3
+  # Le passage trouvé (enfant) est rendu avec sa section (parent).
+  expand_to_parent: true
+  # Règles du lot mesurées avec V5 (campagnes Brissy et Beaumont Sud) : pas de
+  # sommaire, et au plus 2 passages du résumé non technique ou des synthèses,
+  # sinon la réponse reste au niveau du résumé.
+  exclude_toc: true
+  secondary_documents: [RNT, resume_non_technique, résumé non technique]
+  secondary_cap: 2
