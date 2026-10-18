@@ -19,19 +19,25 @@
                                       Pose une question à l'index (sens + mots, reranker) et cite les passages.
   .\DEV.ps1 -Action ask -UseCase ventes -Query "question"
                                       Réponse sourcée par le LLM local (Ollama lancé), verdict et trace.
+  .\DEV.ps1 -Action bench -UseCase mrae -Reference <fichier.jsonl> [-Answer]
+                                      Banc d'essai sur un jeu de référence : bon tome, bonne page, MRR ;
+                                      avec -Answer, le LLM répond aussi (esquives, verdicts). Deux passages.
   .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query).
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "ask", "api", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "ask", "bench", "api", "smoke")]
     [string]$Action,
     # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
     [string]$UseCase,
     # Pour -Action search et ask : la question posée.
     [string]$Query,
+    # Pour -Action bench : le jeu de référence (hors dépôt), et -Answer pour faire répondre le LLM.
+    [string]$Reference,
+    [switch]$Answer,
     # Pour -Action index, watch, search et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
@@ -124,6 +130,16 @@ switch ($Action) {
         if ($Hardware) { $extra = @("--hardware", $Hardware) }
         uv run --extra embed python -m luciole.generation.ask $Query --profile $UseCase @extra
         if ($LASTEXITCODE -ne 0) { throw "Réponse en échec : voir le message ci-dessus" }
+    }
+    "bench" {
+        Ensure-Uv
+        if (-not $UseCase -or -not $Reference) { throw "Donner -UseCase <cas d'usage> et -Reference <fichier.jsonl>" }
+        Write-Step "Banc d'essai (cas d'usage $UseCase) sur $Reference"
+        $extra = @()
+        if ($Hardware) { $extra += @("--hardware", $Hardware) }
+        if ($Answer) { $extra += "--answer" }
+        uv run --extra embed python -m luciole.evaluation.bench --profile $UseCase --reference $Reference @extra
+        if ($LASTEXITCODE -ne 0) { throw "Banc d'essai en échec : voir le message ci-dessus" }
     }
     "api" {
         Ensure-Uv

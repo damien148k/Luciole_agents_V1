@@ -8,6 +8,7 @@ import pytest
 from luciole.core.hardware import (
     detect_arch,
     list_hardware_profiles,
+    load_hardware_profile,
     smoke,
     suggest_profile,
 )
@@ -60,3 +61,22 @@ def test_smoke_tourne_sans_gpu(capsys):
     out = capsys.readouterr().out
     assert "Architecture" in out and "Profil suggéré" in out
     assert code in (0, 1)
+
+
+def test_gpu_invisible_pour_pytorch(monkeypatch):
+    """Windows hors Docker : PyTorch sans CUDA, Ollama sur le GPU."""
+    from luciole.core import hardware
+    from luciole.index.pipeline import _hardware
+
+    monkeypatch.setattr(hardware, "detect_arch", lambda: "x86_64")
+    monkeypatch.setattr(hardware, "detect_gpu_memory_gb", lambda: 12)
+    chosen = _hardware(None, HARDWARE, cuda_available=lambda: False)
+    cpu = load_hardware_profile(HARDWARE / "cpu.yaml")
+    gpu = load_hardware_profile(HARDWARE / "rtx3080ti.yaml")
+    assert chosen.name == "rtx3080ti-cpu" and chosen.device == "cpu"
+    assert (chosen.llm_model, chosen.llm_num_ctx) == (gpu.llm_model, gpu.llm_num_ctx)
+    assert chosen.embedding_batch_size == cpu.embedding_batch_size
+    assert chosen.ocr_device == "cpu"
+    assert _hardware(None, HARDWARE, cuda_available=lambda: True) == gpu
+    # Profil demandé : jamais changé.
+    assert _hardware("rtx3080ti", HARDWARE, cuda_available=lambda: False) == gpu

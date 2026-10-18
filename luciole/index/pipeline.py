@@ -183,22 +183,42 @@ class IngestionPipeline:
 # ---------------------------------------------------------------------------
 # Ligne de commande : indexer une racine de dossiers
 # ---------------------------------------------------------------------------
-def _hardware(name: str | None, root: Path):
+def _torch_sees_gpu() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return bool(torch.cuda.is_available())
+
+
+def _hardware(name: str | None, root: Path, cuda_available=_torch_sees_gpu):
+    """Profil donné par ``--hardware``, sinon celui de la machine. Choisi
+    automatiquement, un profil à GPU dont PyTorch ne voit pas le GPU garde son
+    LLM et met les modèles sur le processeur (``models_on_cpu``)."""
     from luciole.core.hardware import (
         detect_arch,
         detect_gpu_memory_gb,
         list_hardware_profiles,
+        models_on_cpu,
         suggest_profile,
     )
 
     profiles = list_hardware_profiles(root)
+    if name is not None:
+        if name not in profiles:
+            raise SystemExit(f"profil matériel « {name} » inconnu ({', '.join(profiles)})")
+        return profiles[name]
+    name = suggest_profile(profiles, detect_arch(), detect_gpu_memory_gb())
     if name is None:
-        name = suggest_profile(profiles, detect_arch(), detect_gpu_memory_gb())
-        if name is None:
-            raise SystemExit("aucun profil matériel ne convient : donner --hardware")
-    if name not in profiles:
-        raise SystemExit(f"profil matériel « {name} » inconnu ({', '.join(profiles)})")
-    return profiles[name]
+        raise SystemExit("aucun profil matériel ne convient : donner --hardware")
+    chosen = profiles[name]
+    if chosen.device == "cuda" and not cuda_available():
+        chosen = models_on_cpu(chosen, profiles)
+        logger.info(
+            f"PyTorch ne voit pas le GPU : profil {chosen.name} (modèles sur le processeur, "
+            f"LLM {chosen.llm_model})"
+        )
+    return chosen
 
 
 def parser(prog: str, description: str) -> argparse.ArgumentParser:
