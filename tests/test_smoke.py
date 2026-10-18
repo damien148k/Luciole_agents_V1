@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 from luciole.core.hardware import list_hardware_profiles
 from luciole.core.model_files import Manifest, fetch
 from luciole.smoke import (
@@ -25,12 +27,18 @@ from test_model_files import SPEC, fake_downloader  # noqa: E402
 PROFILES = list_hardware_profiles(ROOT / "configs" / "hardware")
 
 
-def fake_torch(cuda: bool):
+def fake_torch(cuda: bool, init_error: str | None = None):
+    def init():
+        if init_error:
+            raise RuntimeError(init_error)
+
     return lambda: SimpleNamespace(
         __version__="2.14.1",
         version=SimpleNamespace(cuda="13.0"),
         cuda=SimpleNamespace(
-            is_available=lambda: cuda, get_device_name=lambda i: "NVIDIA GeForce RTX 3080 Ti"
+            is_available=lambda: cuda,
+            get_device_name=lambda i: "NVIDIA GeForce RTX 3080 Ti",
+            init=init,
         ),
     )
 
@@ -63,6 +71,11 @@ def test_pytorch_et_gpu():
     no_gpu = check_torch(gpu, fake_torch(False))
     assert not no_gpu.ok and "pilote NVIDIA 580" in no_gpu.detail
     assert check_torch(cpu, fake_torch(False)).ok
+    too_old = "The NVIDIA driver on your system is too old\n(found version 12080)."
+    old_driver = check_torch(gpu, fake_torch(False, too_old))
+    assert "PyTorch dit : The NVIDIA driver on your system is too old (found version 12080)." in (
+        old_driver.detail
+    )
 
     def absent():
         raise ImportError("torch")
@@ -119,3 +132,13 @@ def test_ligne_de_commande_rapporte_les_echecs(tmp_path, monkeypatch, capsys):
     assert code == 1
     assert "[ÉCHEC] modèle bge-m3" in out and "[OK] qdrant" in out
     assert "[ÉCHEC] opensearch" in out and "échec(s)" in out
+
+
+def test_compose_donne_cuda_au_conteneur():
+    # Avec « utility » seul, nvidia-smi marche dans le conteneur mais PyTorch
+    # ne trouve pas la bibliothèque CUDA (vécu sur la 3080 Ti).
+    compose = yaml.safe_load(
+        (Path(__file__).parents[1] / "docker" / "compose.app.yaml").read_text(encoding="utf-8")
+    )
+    devices = compose["services"]["luciole"]["deploy"]["resources"]["reservations"]["devices"]
+    assert {"gpu", "compute", "utility"} <= set(devices[0]["capabilities"])

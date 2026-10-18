@@ -25,6 +25,8 @@ services:
       resources:
         reservations:
           devices:
+            # « compute » donne la bibliothèque CUDA (sans elle, PyTorch ne
+            # voit aucun GPU) ; « utility » donne nvidia-smi.
             - driver: nvidia
               count: all
-              capabilities: [gpu, utility]
+              capabilities: [gpu, compute, utility]

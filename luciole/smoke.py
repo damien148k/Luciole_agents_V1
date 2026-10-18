@@ -90,11 +90,20 @@ def check_torch(
                 False,
                 f"{version} ne voit aucun GPU alors que le profil {profile.name} le demande "
                 "(pilote NVIDIA 580 ou plus pour CUDA 13 ; "
-                "sous Windows, passer par l'image Docker)",
+                f"sous Windows, passer par l'image Docker){_cuda_cause(torch)}",
             )
         return Check("pytorch", True, f"{version}, processeur (profil {profile.name})")
     gpu = torch.cuda.get_device_name(0)
     return Check("pytorch", True, f"{version}, CUDA {torch.version.cuda}, {gpu}")
+
+
+def _cuda_cause(torch) -> str:
+    """Raison donnée par PyTorch lui-même (pilote trop ancien, aucun GPU...)."""
+    try:
+        torch.cuda.init()
+    except Exception as e:  # noqa: BLE001 - on ne fait que rapporter le message
+        return f" ; PyTorch dit : {' '.join(str(e).split())}"
+    return ""
 
 
 def _import_torch():
