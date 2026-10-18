@@ -36,6 +36,8 @@ entities:
       values: [compte_rendu, transcription, email, proposition, autre]
 ingestion:
   dossier_file: dossier.yaml
+  # Secondes entre deux relevés du watcher.
+  watch_interval_s: 10
   # « reunion-2.transcript.md », « Réunion 3 - CR.docx »… donnent le numéro
   # de réunion quand le document ne le dit pas lui-même.
   filename_patterns:

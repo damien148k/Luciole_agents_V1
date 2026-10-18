@@ -132,12 +132,15 @@ class IngestionSpec(StrictModel):
     - ``document_order`` est le champ de document qui range les documents d'un
       dossier dans le temps (ex. ``numero_reunion``) : quand des documents
       donnent des valeurs différentes pour un champ de dossier, celle du
-      document le plus récent l'emporte.
+      document le plus récent l'emporte ;
+    - ``watch_interval_s`` est l'intervalle entre deux relevés du watcher.
     """
 
     dossier_file: str = Field("dossier.yaml", pattern=r"^[^/\\]+$")
     filename_patterns: list[str] = Field(default_factory=list)
     document_order: str | None = None
+    #: Secondes entre deux relevés du watcher (``luciole.index.watcher``).
+    watch_interval_s: float = Field(10.0, gt=0)
 
     @model_validator(mode="after")
     def _patterns_compile(self) -> IngestionSpec:

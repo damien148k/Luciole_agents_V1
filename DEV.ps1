@@ -13,16 +13,18 @@
   .\DEV.ps1 -Action models            Récupère une fois les modèles (révision épinglée) puis les vérifie.
   .\DEV.ps1 -Action index -Root <dossier> -UseCase ventes
                                       Indexe une racine de dossiers (Qdrant + OpenSearch démarrés).
+  .\DEV.ps1 -Action watch -Root <dossier> -UseCase ventes
+                                      Surveille la racine et garde l'index à jour (Ctrl+C pour arrêter).
   .\DEV.ps1 -Action smoke             Test de fumée du matériel (GPU, modèles, conteneurs).
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "smoke")]
     [string]$Action,
-    # Pour -Action index : la racine des dossiers et le cas d'usage.
+    # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
     [string]$UseCase,
-    # Pour -Action index : profil matériel (défaut : celui de cette machine).
+    # Pour -Action index et watch : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
 
@@ -87,6 +89,14 @@ switch ($Action) {
         $extra = @()
         if ($Hardware) { $extra = @("--hardware", $Hardware) }
         uv run --extra embed python -m luciole.index.pipeline $Root --profile $UseCase @extra
+    }
+    "watch" {
+        Ensure-Uv
+        if (-not $Root -or -not $UseCase) { throw "Donner -Root <dossier> et -UseCase <cas d'usage>" }
+        Write-Step "Surveillance de $Root (cas d'usage $UseCase), Ctrl+C pour arrêter"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        uv run --extra embed python -m luciole.index.watcher $Root --profile $UseCase @extra
     }
     "smoke" {
         Ensure-Uv

@@ -16,7 +16,7 @@ from qdrant_client import QdrantClient
 from luciole.core.profile import ChunkingSpec, load_profile
 from luciole.index.embedder import index_key, index_name
 from luciole.index.opensearch import MAPPING, OpenSearchIndex
-from luciole.index.pipeline import IngestionPipeline
+from luciole.index.pipeline import IngestionPipeline, document_key
 from luciole.index.qdrant import QdrantIndex, point_id
 from luciole.ingestion.chunking import Chunker
 from luciole.ingestion.registry import default_registry
@@ -85,7 +85,8 @@ def test_ingestion_d_un_dossier_de_test(env):
     assert report.parents == env.store.count_chunks("parent")
     env.assert_aligned()
     doc = env.store.select("document")[0]
-    assert env.store.indexed_with(doc.document_id) == index_key(env.embedder)
+    key = env.store.indexed_with(doc.document_id)
+    assert key == document_key(VENTES, env.embedder) and key.startswith(index_key(env.embedder))
 
 
 def test_reingestion_sans_doublon_ni_calcul(env):
@@ -280,3 +281,56 @@ def test_ligne_de_commande(tmp_path, monkeypatch, capsys):
     assert main(argv, **run) == 0
     again = capsys.readouterr().out
     assert "0 document(s) indexé(s)" in again and "5 déjà à jour" in again
+
+
+class CountingRegistry:
+    """Registre qui compte les fichiers réellement analysés."""
+
+    def __init__(self) -> None:
+        self.inner = default_registry()
+        self.parsed: list[str] = []
+
+    def supports(self, path) -> bool:
+        return self.inner.supports(path)
+
+    def parse(self, path):
+        self.parsed.append(Path(path).name)
+        return self.inner.parse(path)
+
+
+def test_passage_incremental_n_analyse_que_le_modifie(env):
+    registry = CountingRegistry()
+    env.pipeline.registry = registry
+    env.pipeline.run(env.root)
+    assert len(registry.parsed) == 5
+    dossier_before = env.store.get_dossier("atelier-dubois")
+
+    registry.parsed.clear()
+    env.pipeline.run(env.root)
+    assert registry.parsed == [], "rien n'est réanalysé"
+    assert env.store.get_dossier("atelier-dubois") == dossier_before, "même consolidation"
+
+    path = env.root / "atelier-dubois" / "reunion-3.transcript.md"
+    text = path.read_text(encoding="utf-8")
+    assert "issue: perdu" in text
+    path.write_text(text.replace("issue: perdu", "issue: gagne"), encoding="utf-8")
+    report = env.pipeline.run(env.root)
+    assert registry.parsed == ["reunion-3.transcript.md"] and len(report.skipped) == 4
+    # Le dossier est reconsolidé avec les fiches relues des réunions 1 et 2.
+    assert env.store.get_dossier("atelier-dubois").metadata["issue"] == "gagne"
+    env.assert_aligned()
+
+
+def test_profil_modifie_reindexe_tout(env):
+    env.pipeline.run(env.root)
+    bigger = VENTES.model_copy(
+        update={"chunking": SPEC.model_copy(update={"size_tokens": 80, "parent_size_tokens": 180})}
+    )
+    pipeline = env.make(env.embedder)
+    pipeline.profile = bigger
+    pipeline.key = document_key(bigger, env.embedder)
+    assert pipeline.key != env.pipeline.key
+    assert index_name("ventes", env.embedder) == env.vectors.collection, "même collection"
+    report = pipeline.run(env.root)
+    assert len(report.indexed) == 5 and report.skipped == []
+    env.assert_aligned()

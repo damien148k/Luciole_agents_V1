@@ -31,6 +31,7 @@ champ invalide n'arrête pas l'ingestion : il apparaît dans le rapport.
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 import unicodedata
 from collections.abc import Callable, Iterator
@@ -193,20 +194,21 @@ def dossier_metadata(
     profile: UseCaseProfile,
     dossier_id: str,
     dossier_file_values: dict,
-    documents: list[tuple[DocumentRecord, ParsedDocument]],
+    documents: list[DocumentRecord],
 ) -> ValidatedMetadata:
-    """Champs du dossier : ``dossier.yaml``, sinon consolidés depuis les documents."""
+    """Champs du dossier : ``dossier.yaml``, sinon consolidés depuis les
+    documents (leurs ``dossier_hints``)."""
     schema = profile.entities.dossier
     from_documents: dict[str, object] = {}
     issues: list[MetadataIssue] = []
-    ordered = sorted(documents, key=lambda pair: _order_key(profile, pair[0]))
+    ordered = sorted(documents, key=lambda record: _order_key(profile, record))
     for name, spec in schema.items():
         seen: list[tuple[str, object]] = []
-        for record, parsed in ordered:
-            if name not in parsed.metadata:
+        for record in ordered:
+            if name not in record.dossier_hints:
                 continue
             try:
-                value = coerce_value(spec, parsed.metadata[name])
+                value = coerce_value(spec, record.dossier_hints[name])
             except ValueError as e:
                 issues.append(
                     MetadataIssue(
@@ -264,15 +266,22 @@ def dossier_metadata(
 # ---------------------------------------------------------------------------
 # Parcours
 # ---------------------------------------------------------------------------
-def _is_ignored(path: Path) -> bool:
+def _json_safe(values: dict) -> dict:
+    """Mêmes valeurs qu'après un aller-retour par le magasin (dates en texte) :
+    une fiche relue consolide son dossier exactement comme une fiche neuve."""
+    return json.loads(json.dumps(values, ensure_ascii=False, default=str))
+
+
+def is_ignored(path: Path) -> bool:
+    """Fichier ou dossier caché, temporaire (« ~$ » de Word) ou système."""
     name = path.name
     return name.lower() in _IGNORED_NAMES or name.startswith(_IGNORED_PREFIXES)
 
 
 def _iter_files(directory: Path) -> Iterator[Path]:
     for path in sorted(directory.rglob("*")):
-        if path.is_file() and not any(_is_ignored(p) for p in path.relative_to(directory).parents):
-            if not _is_ignored(path):
+        if path.is_file() and not any(is_ignored(p) for p in path.relative_to(directory).parents):
+            if not is_ignored(path):
                 yield path
 
 
@@ -283,12 +292,18 @@ def scan(
     *,
     extractor: MetadataExtractor | None = None,
     on_document: Callable[[DocumentRecord, ParsedDocument], None] | None = None,
+    reuse: Callable[[str], DocumentRecord | None] | None = None,
 ) -> ScanResult:
     """Parcourt ``root`` : un sous-répertoire = un dossier.
 
     Chaque document est lu une seule fois ; ``on_document`` reçoit sa fiche et
-    sa version structurée (l'étape 3 y branchera découpage et indexation sans
+    sa version structurée (le pipeline y branche découpage et indexation sans
     relire le fichier). Les fiches ne gardent que les métadonnées.
+
+    ``reuse(document_id)`` permet un passage **incrémental** : s'il renvoie
+    la fiche déjà connue d'un document (même chemin, même contenu), le fichier
+    n'est pas analysé et ``on_document`` n'est pas appelé ; la fiche entre
+    telle quelle dans le résultat et dans la consolidation du dossier.
     """
     root = Path(root)
     if not root.is_dir():
@@ -297,7 +312,7 @@ def scan(
     dossier_file = profile.ingestion.dossier_file
 
     for entry in sorted(root.iterdir()):
-        if _is_ignored(entry):
+        if is_ignored(entry):
             continue
         rel = normalize_relative_path(entry.relative_to(root))
         if entry.is_file():
@@ -306,7 +321,7 @@ def scan(
         if not entry.is_dir():
             continue
         dossier_id = rel
-        parsed_docs: list[tuple[DocumentRecord, ParsedDocument]] = []
+        records: list[DocumentRecord] = []
         for path in _iter_files(entry):
             rel_path = normalize_relative_path(path.relative_to(root))
             if path.parent == entry and path.name == dossier_file:
@@ -314,13 +329,17 @@ def scan(
             if not registry.supports(path):
                 result.skipped.append(SkippedFile(rel_path, "format non pris en charge"))
                 continue
+            digest = content_hash(path)
+            known = reuse(make_document_id(rel_path, digest)) if reuse is not None else None
+            if known is not None:
+                records.append(known)
+                continue
             try:
                 parsed = registry.parse(path)
             except Exception as e:  # noqa: BLE001 - un fichier illisible n'arrête rien
                 logger.warning(f"{rel_path} : lecture impossible ({e})")
                 result.skipped.append(SkippedFile(rel_path, f"lecture impossible : {e}"))
                 continue
-            digest = content_hash(path)
             meta = document_metadata(profile, parsed, path.name, extractor)
             record = DocumentRecord(
                 document_id=make_document_id(rel_path, digest),
@@ -335,13 +354,16 @@ def scan(
                 metadata=meta.values,
                 sources=meta.sources,
                 issues=meta.issues,
+                dossier_hints=_json_safe(
+                    {k: v for k, v in parsed.metadata.items() if k in profile.entities.dossier}
+                ),
             )
-            parsed_docs.append((record, parsed))
+            records.append(record)
             if on_document is not None:
                 on_document(record, parsed)
 
         file_values, file_issues = _read_dossier_file(entry / dossier_file, profile)
-        meta = dossier_metadata(profile, dossier_id, file_values, parsed_docs)
+        meta = dossier_metadata(profile, dossier_id, file_values, records)
         result.dossiers.append(
             DossierRecord(
                 dossier_id=dossier_id,
@@ -350,7 +372,7 @@ def scan(
                 issues=[*file_issues, *meta.issues],
             )
         )
-        result.documents.extend(record for record, _ in parsed_docs)
+        result.documents.extend(records)
     return result
 
 

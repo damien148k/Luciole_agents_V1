@@ -73,6 +73,10 @@ class DocumentRecord(BaseModel):
         default_factory=dict, description="Origine de chaque valeur (front matter, nom…)"
     )
     issues: list[MetadataIssue] = Field(default_factory=list)
+    #: Valeurs brutes des champs de **dossier** lues dans le document (front
+    #: matter…), consolidées au niveau du dossier. Gardées dans la fiche pour
+    #: reconsolider un dossier sans relire ses documents inchangés.
+    dossier_hints: dict[str, object] = Field(default_factory=dict)
 
     @property
     def valid(self) -> bool:

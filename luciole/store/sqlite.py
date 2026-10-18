@@ -76,7 +76,8 @@ CREATE TABLE IF NOT EXISTS documents (
     sources        TEXT NOT NULL,
     issues         TEXT NOT NULL,
     ingested_at    TEXT NOT NULL,
-    indexed_with   TEXT
+    indexed_with   TEXT,
+    dossier_hints  TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS documents_by_dossier ON documents(dossier_id);
 CREATE TABLE IF NOT EXISTS chunks (
@@ -209,12 +210,13 @@ class MetadataStore:
             self._db.execute(
                 """INSERT INTO documents(document_id, dossier_id, relative_path, file_name,
                      doc_type, content_hash, size_bytes, page_count, parser_version,
-                     metadata, sources, issues, ingested_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     metadata, sources, issues, ingested_at, dossier_hints)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(document_id) DO UPDATE SET dossier_id = excluded.dossier_id,
                      doc_type = excluded.doc_type, page_count = excluded.page_count,
                      parser_version = excluded.parser_version, metadata = excluded.metadata,
-                     sources = excluded.sources, issues = excluded.issues""",
+                     sources = excluded.sources, issues = excluded.issues,
+                     dossier_hints = excluded.dossier_hints""",
                 (
                     doc.document_id,
                     doc.dossier_id,
@@ -229,6 +231,7 @@ class MetadataStore:
                     _dumps(doc.sources),
                     _issues_dump(doc.issues),
                     _now(),
+                    _dumps(doc.dossier_hints),
                 ),
             )
         return status, (old_id if status == "replaced" else None)
@@ -338,6 +341,7 @@ class MetadataStore:
             metadata=json.loads(row["metadata"]),
             sources=json.loads(row["sources"]),
             issues=[MetadataIssue(**i) for i in json.loads(row["issues"])],
+            dossier_hints=json.loads(row["dossier_hints"]),
         )
 
     def get_document(self, document_id: str) -> DocumentRecord | None:
