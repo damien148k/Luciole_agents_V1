@@ -263,3 +263,54 @@ def test_registre_par_defaut_connait_le_pdf(corpus):
     assert reg.supports("x.pdf") and reg.supports("x.transcript.md")
     doc = reg.parse(corpus["simple.pdf"])
     assert doc.doc_type == "pdf" and LOREM.split(".")[0] in doc.to_text()
+
+
+# ---------------------------------------------------------------------------
+# Numéros de page imprimés (étape 2)
+# ---------------------------------------------------------------------------
+def test_numeros_imprimes_double_page(corpus):
+    doc = PdfParser().parse(corpus["two_up_rotated.pdf"])
+    assert [[lb.display() for lb in p.labels] for p in doc.pages] == [
+        ["10/47", "11/47"],
+        [],
+        ["12/47", "13/47"],
+        ["14/47", "15/47"],
+    ]
+    assert [lb.side for lb in doc.pages[0].labels] == ["left", "right"]
+    assert doc.metadata["pages_with_printed_label"] == 3
+
+
+def test_numero_page_sur_total(corpus):
+    doc = PdfParser().parse(corpus["simple.pdf"])
+    assert [p.labels[0].display() for p in doc.pages] == ["1/3", "2/3", "3/3"]
+    assert {p.labels[0].side for p in doc.pages} == {"page"}
+    assert [n.node_type for n in doc.nodes].count("title") == 1, "un seul titre de document"
+
+
+def _footer_pdf(path: Path, footers: list[str]) -> Path:
+    doc = pymupdf.open()
+    for text in footers:
+        page = doc.new_page(width=595, height=842)
+        page.insert_textbox(pymupdf.Rect(50, 100, 545, 600), LOREM, fontsize=10)
+        page.insert_text((50, 815), text, fontsize=8)
+    doc.save(path)
+    doc.close()
+    return path
+
+
+def test_numero_seul_en_pied_de_page(tmp_path):
+    doc = PdfParser().parse(_footer_pdf(tmp_path / "t.pdf", ["12", "13", "14", "15"]))
+    assert [p.labels[0].display() for p in doc.pages] == ["12", "13", "14", "15"]
+
+
+@pytest.mark.parametrize(
+    "footers",
+    [
+        ["Rapport – 01/06/2021"] * 4,  # une date n'est pas « page 6 sur 2021 »
+        ["2021"] * 4,  # un nombre qui ne change pas n'est pas un numéro de page
+        ["12", "", "", ""],  # un nombre isolé non plus
+    ],
+)
+def test_pas_de_faux_numero_de_page(tmp_path, footers):
+    doc = PdfParser().parse(_footer_pdf(tmp_path / "t.pdf", footers))
+    assert all(p.labels == [] for p in doc.pages)
