@@ -173,7 +173,7 @@ def test_recherche_dense_et_lexicale(env):
     for hits in (dense, lexical):
         top = hits[0].payload
         assert top["relative_path"] == "atelier-dubois/reunion-3.transcript.md"
-        assert top["citation"].startswith("reunion-3.transcript.md")
+        assert top["citation"].startswith("atelier-dubois/reunion-3.transcript.md")
         assert top["metadata"]["numero_reunion"] == 3
     roche = [d.document_id for d in env.store.select("document") if d.dossier_id == "cabinet-roche"]
     filtered = env.vectors.search(vector, limit=10, document_ids=roche)

@@ -39,7 +39,7 @@ _EVASION = re.compile(
 _CITATION = re.compile(r"\bp(?:age)?s?\.?\s*\d+|source\s*:|\.pdf", re.I)
 # Page(s) citée(s) : « page 73 », « pages 104-106 », « p. 60 ».
 _PAGE_CITED = re.compile(r"\b(?:pages?|p\.)\s*(\d{1,4})(?:\s*(?:-|–|à)\s*(\d{1,4}))?", re.I)
-_FILE_NAME = re.compile(r"([\w\-()]+(?:[ .][\w\-()]+)*\.(?:pdf|docx?|md|txt))", re.I)
+_FILE_NAME = re.compile(r"([\w\-()/]+(?:[ .][\w\-()/]+)*\.(?:pdf|docx?|md|txt))", re.I)
 _TOME = re.compile(r"\btome\s*(\d+)", re.I)
 _LIST_MARK = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s*")
 _NUMBER = re.compile(r"(?<![\w/])(\d{1,3}(?:[   ]\d{3})+|\d+)(?:[.,](\d+))?(?![\w/])")
@@ -88,8 +88,8 @@ def is_degenerate(
 # --- pages ----------------------------------------------------------------
 @dataclass(frozen=True)
 class SourcePages:
-    """Ce qu'un passage fourni au LLM couvre : fichier, pages PDF, numéros
-    imprimés (« 14/47 »)."""
+    """Ce qu'un passage fourni au LLM couvre : fichier (chemin dans la racine,
+    ou nom), pages PDF, numéros imprimés (« 14/47 »)."""
 
     file_name: str
     page_start: int | None = None
@@ -98,7 +98,7 @@ class SourcePages:
 
 
 def lot_pages(sources: Iterable[SourcePages]) -> dict[str, set[int]]:
-    """Pages couvertes par fichier (nom en minuscules) : pages PDF et
+    """Pages couvertes par fichier (chemin en minuscules) : pages PDF et
     numérateurs des numéros imprimés."""
     pages: dict[str, set[int]] = {}
     for s in sources:
@@ -117,8 +117,10 @@ def lot_pages(sources: Iterable[SourcePages]) -> dict[str, set[int]]:
 
 
 def _cited_document(before: str, pages: Mapping[str, set[int]]) -> str | None:
-    """Document d'une citation : la dernière référence avant la page, nom de
-    fichier (complet ou abrégé) ou « Tome N » ; la plus proche l'emporte."""
+    """Document d'une citation : la dernière référence avant la page, chemin
+    ou nom de fichier (complet ou abrégé) ou « Tome N » ; la plus proche
+    l'emporte. Un nom que portent plusieurs fichiers du lot (deux dossiers)
+    ne désigne aucun d'eux : la page est alors comparée à tout le lot."""
     name, position = None, -1
     for cited in _FILE_NAME.finditer(before):
         words = cited.group(1).strip().split(" ")
@@ -126,6 +128,11 @@ def _cited_document(before: str, pages: Mapping[str, set[int]]) -> str | None:
         for i in range(len(words)):
             token = " ".join(words[i:])
             matches = [n for n in pages if n == token or n.endswith(token)]
+            if token in matches:
+                matches = [token]
+            if len(matches) > 1 and len({m.rsplit("/", 1)[-1] for m in matches}) == 1:
+                candidate = None  # même nom dans plusieurs dossiers
+                break
             if matches:
                 candidate = min(matches, key=len)
                 break

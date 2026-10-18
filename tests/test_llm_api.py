@@ -146,7 +146,7 @@ def test_rag_query(api):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["verdict"] == "SUFFISANT" and body["answer"] == GOOD
-    assert body["citations"][0]["citation"].startswith("reunion-3.transcript.md")
+    assert body["citations"][0]["citation"].startswith("atelier-dubois/reunion-3.transcript.md")
     assert set(body["citations"][0]) >= {"chunk_id", "document_id", "page_labels", "cited"}
     trace = client.get(f"/api/traces/{body['trace_id']}")
     assert trace.status_code == 200 and trace.json()["question"] == QUESTION

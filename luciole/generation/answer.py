@@ -65,7 +65,7 @@ def format_passages(passages: Sequence[Passage], budget_tokens: int) -> tuple[st
 
 def _sources(passages: Sequence[Passage]) -> list[SourcePages]:
     return [
-        SourcePages(p.unit.file_name, p.unit.page_start, p.unit.page_end, p.unit.page_labels)
+        SourcePages(p.unit.relative_path, p.unit.page_start, p.unit.page_end, p.unit.page_labels)
         for p in passages
     ]
 
@@ -95,7 +95,7 @@ class Answer:
         for p in self.passages:
             d = p.to_dict()
             d.pop("text")
-            own = lot_pages(_sources([p])).get(p.unit.file_name.lower(), set())
+            own = lot_pages(_sources([p])).get(p.unit.relative_path.lower(), set())
             d["cited"] = bool(own & pages)
             out.append(d)
         return out

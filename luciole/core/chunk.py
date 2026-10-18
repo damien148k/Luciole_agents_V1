@@ -60,15 +60,16 @@ class Chunk(BaseModel):
         return f"{self.context}\n\n{self.text}" if self.context else self.text
 
     def citation(self) -> str:
-        """Référence lisible : fichier, page imprimée si connue, sinon page PDF."""
+        """Référence lisible : chemin dans la racine (le dossier lève l'ambiguïté
+        entre deux fichiers de même nom), page imprimée si connue, page PDF."""
         if self.page_start is None:
-            return self.file_name
+            return self.relative_path
         pdf = (
             f"p. {self.page_start}"
             if self.page_start == self.page_end
             else f"p. {self.page_start}-{self.page_end}"
         )
         if not self.page_labels:
-            return f"{self.file_name}, {pdf}"
+            return f"{self.relative_path}, {pdf}"
         printed = ", ".join(self.page_labels)
-        return f"{self.file_name}, page {printed} (PDF {pdf})"
+        return f"{self.relative_path}, page {printed} (PDF {pdf})"
