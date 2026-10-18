@@ -8,12 +8,13 @@
   .\DEV.ps1 -Action install           Crée l'environnement Python avec uv (installe uv si absent).
   .\DEV.ps1 -Action test              Tests unitaires (sans GPU ni Docker).
   .\DEV.ps1 -Action lint              Vérification du code avec ruff.
-  .\DEV.ps1 -Action test-integration  Tests marqués `integration` (Docker + GPU).
+  .\DEV.ps1 -Action test-integration  Démarre Qdrant et OpenSearch (Docker), puis les tests `integration`.
+  .\DEV.ps1 -Action services-stop     Arrête Qdrant et OpenSearch (les données restent).
   .\DEV.ps1 -Action smoke             Test de fumée du matériel (GPU, modèles, conteneurs).
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "smoke")]
     [string]$Action
 )
 
@@ -52,8 +53,16 @@ switch ($Action) {
     }
     "test-integration" {
         Ensure-Uv
+        Write-Step "Démarrage de Qdrant et OpenSearch (Docker Desktop doit être lancé)"
+        docker compose -f docker/compose.services.yaml up -d --wait
+        if ($LASTEXITCODE -ne 0) { throw "Docker : services non démarrés (Docker Desktop est-il lancé ?)" }
+        Write-OK "Services prêts"
         Write-Step "Tests d'intégration (Docker + GPU)"
         uv run pytest -m integration
+    }
+    "services-stop" {
+        Write-Step "Arrêt de Qdrant et OpenSearch"
+        docker compose -f docker/compose.services.yaml down
     }
     "smoke" {
         Ensure-Uv

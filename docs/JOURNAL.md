@@ -31,3 +31,9 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
 - Décidé : voir `DECISIONS.md` (SQLite, `document_id`, priorité des métadonnées, tokenizer hors ligne, parent-enfant, garde `max_tokens`, numéros imprimés).
 - Reporté : extracteur de métadonnées par LLM (contrat `MetadataExtractor` en place, branché à l'étape 4 avec Ollama) ; révision épinglée des fichiers du modèle (étape 3, avec l'embedder) ; sommaires rendus en tableaux bruts par pymupdf4llm (morceaux peu lisibles, sans perte de texte).
 - Résultat (2026-10-18) : **porte franchie.**
+
+## Étape 3 — Embedding, index, watcher, multi-architecture (ouverte le 2026-10-18)
+
+- Porte de passage (3080 Ti, puis GX10 si disponible) : ingestion d'un dossier de test, réingestion sans doublon, suppression propre, test de fumée vert.
+- Découpage prévu : PR 3a index Qdrant (vecteurs nommés) et OpenSearch (BM25), pipeline aligné sur le magasin, services Docker épinglés ; PR 3b embedder BGE-M3 réel (PyTorch selon le profil matériel), fichiers du modèle à révision épinglée, watcher ; PR 3c images applicatives amd64 + arm64 et `DEV.ps1 -Action smoke` (GPU, modèles, conteneurs).
+- 2026-10-18, PR 3a : pipeline `luciole/index/pipeline.py`, index `qdrant.py` et `opensearch.py`, magasin en schéma 2 (morceaux + clé d'index). Réingestion sans doublon, fichier modifié réindexé seul, suppression d'un fichier et d'un dossier, reprise après arrêt au milieu : vérifiés sur Qdrant en mémoire et un faux OpenSearch (197 tests), puis sur de vrais serveurs Qdrant 1.19.1 et OpenSearch 3.8.0 lancés par Docker dans le conteneur de Claude (`test_index_services.py`, 1 passed). L'embedder est encore un faux : la porte attend la PR 3b et la 3080 Ti.

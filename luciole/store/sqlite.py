@@ -16,6 +16,12 @@ Un magasin appartient à un cas d'usage : l'ouvrir avec un autre profil est
 refusé. Il garde **un seul document par chemin** : un fichier modifié
 remplace sa fiche (``replaced``) et le rapport donne l'ancien identifiant,
 pour que l'index (étape 3) supprime ses anciens chunks.
+
+Il garde aussi les **morceaux** de chaque document (parents et enfants) :
+l'index de recherche ne contient que les enfants, la lecture d'une section
+entière passe par ici. ``indexed_with`` note avec quel embedder et quel
+schéma d'index un document a été indexé : un document dont la valeur ne
+correspond plus est réindexé.
 """
 
 from __future__ import annotations
@@ -28,6 +34,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 
+from luciole.core.chunk import Chunk
 from luciole.core.dossier import DocumentRecord, DossierRecord
 from luciole.core.metadata import MetadataIssue, coerce_value
 from luciole.core.profile import FieldSpec, UseCaseProfile
@@ -68,9 +75,19 @@ CREATE TABLE IF NOT EXISTS documents (
     metadata       TEXT NOT NULL,
     sources        TEXT NOT NULL,
     issues         TEXT NOT NULL,
-    ingested_at    TEXT NOT NULL
+    ingested_at    TEXT NOT NULL,
+    indexed_with   TEXT
 );
 CREATE INDEX IF NOT EXISTS documents_by_dossier ON documents(dossier_id);
+CREATE TABLE IF NOT EXISTS chunks (
+    chunk_id    TEXT PRIMARY KEY,
+    document_id TEXT NOT NULL REFERENCES documents(document_id) ON DELETE CASCADE,
+    kind        TEXT NOT NULL,
+    parent_id   TEXT,
+    position    INTEGER NOT NULL,
+    data        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chunks_by_document ON chunks(document_id, kind, position);
 """
 
 
@@ -249,6 +266,52 @@ class MetadataStore:
         report.removed = sorted(stale)
         report.removed_dossiers = sorted(gone)
         return report
+
+    # -- morceaux et état d'indexation -------------------------------------
+    def replace_chunks(self, document_id: str, chunks: list[Chunk], indexed_with: str) -> None:
+        """Remplace les morceaux d'un document et note la clé d'indexation.
+        Appelé **après** l'écriture dans l'index : en cas d'arrêt entre les deux,
+        le document est simplement réindexé au passage suivant."""
+        if self.get_document(document_id) is None:
+            raise KeyError(f"document inconnu du magasin : {document_id}")
+        with self._db:
+            self._db.execute("DELETE FROM chunks WHERE document_id = ?", (document_id,))
+            self._db.executemany(
+                """INSERT INTO chunks(chunk_id, document_id, kind, parent_id, position, data)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                [
+                    (c.chunk_id, document_id, c.kind, c.parent_id, c.index, c.model_dump_json())
+                    for c in chunks
+                ],
+            )
+            self._db.execute(
+                "UPDATE documents SET indexed_with = ? WHERE document_id = ?",
+                (indexed_with, document_id),
+            )
+
+    def indexed_with(self, document_id: str) -> str | None:
+        row = self._db.execute(
+            "SELECT indexed_with FROM documents WHERE document_id = ?", (document_id,)
+        ).fetchone()
+        return row["indexed_with"] if row else None
+
+    def chunks_of(self, document_id: str, kind: str | None = None) -> list[Chunk]:
+        sql = "SELECT data FROM chunks WHERE document_id = ?"
+        params: list = [document_id]
+        if kind is not None:
+            sql += " AND kind = ?"
+            params.append(kind)
+        sql += " ORDER BY kind DESC, position"  # parents puis enfants
+        return [Chunk.model_validate_json(r["data"]) for r in self._db.execute(sql, params)]
+
+    def get_chunk(self, chunk_id: str) -> Chunk | None:
+        row = self._db.execute("SELECT data FROM chunks WHERE chunk_id = ?", (chunk_id,)).fetchone()
+        return Chunk.model_validate_json(row["data"]) if row else None
+
+    def count_chunks(self, kind: str | None = None) -> int:
+        if kind is None:
+            return self._db.execute("SELECT COUNT(*) FROM chunks").fetchone()[0]
+        return self._db.execute("SELECT COUNT(*) FROM chunks WHERE kind = ?", (kind,)).fetchone()[0]
 
     # -- lecture ----------------------------------------------------------
     @staticmethod
