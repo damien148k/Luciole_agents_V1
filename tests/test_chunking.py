@@ -410,7 +410,12 @@ def test_tokenizer_par_chemin_ou_dossier_des_modeles(tmp_path, monkeypatch):
 
 
 def test_tokenizer_absent_erreur_claire(tmp_path, monkeypatch):
+    # Isoler tous les emplacements, y compris le cache Hugging Face du dossier
+    # personnel : sur une machine où BGE-M3 est déjà téléchargé, il serait trouvé.
     monkeypatch.setenv("HF_HUB_CACHE", str(tmp_path / "vide"))
+    monkeypatch.setenv("HF_HOME", str(tmp_path / "hf"))
+    monkeypatch.setenv("HOME", str(tmp_path / "maison"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "maison"))
     monkeypatch.setenv("LUCIOLE_MODELS_DIR", str(tmp_path / "modeles"))
     with pytest.raises(FileNotFoundError, match="rien n'est téléchargé") as err:
         load_tokenizer("BAAI/bge-m3")
