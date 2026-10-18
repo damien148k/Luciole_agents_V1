@@ -1,0 +1,10 @@
+name: cpu
+title: Sans GPU (tests, CI)
+arch: x86_64
+device: cpu
+gpu_memory_gb: 0
+llm_model: qwen2.5:7b-instruct-q4_K_M
+llm_num_ctx: 8192
+embedding_batch_size: 4
+reranker_batch_size: 4
+ocr_device: cpu

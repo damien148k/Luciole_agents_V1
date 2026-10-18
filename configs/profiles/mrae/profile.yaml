@@ -1,0 +1,34 @@
+# Cas d'usage : réponses aux avis de l'autorité environnementale (MRAe)
+# sur des projets soumis à étude d'impact. Squelette de l'étape 0 : les
+# champs sont ceux que le pipeline MRAe de V5 utilisait implicitement.
+name: mrae
+title: Réponses aux avis MRAe
+description: >
+  Un dossier = un projet déposé (tomes d'étude d'impact, annexes, cartes).
+  Une demande = une remarque de l'autorité à laquelle il faut répondre
+  à partir du dossier, avec citations exactes (document, page).
+entities:
+  dossier:
+    projet:
+      type: string
+      required: true
+      description: Nom du projet (ex. parc éolien de …)
+    porteur:
+      type: string
+      description: Porteur de projet
+  document:
+    tome:
+      type: string
+      description: Tome ou pièce du dossier (ex. Tome 4, Résumé non technique)
+    nature:
+      type: enum
+      values: [etude_impact, resume_non_technique, annexe, carte, avis, autre]
+      description: Nature de la pièce
+chunking:
+  size_tokens: 512
+  overlap_pct: 15
+retrieval:
+  dense_top_n: 75
+  bm25_top_n: 75
+  rrf_k: 60
+  rerank_top_k: 8
