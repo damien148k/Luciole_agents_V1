@@ -32,18 +32,24 @@ def parser() -> argparse.ArgumentParser:
         description="Recherche hybride (sens + mots), fusion RRF et reranker.",
     )
     cli.add_argument("question")
+    add_service_options(cli)
+    cli.add_argument(
+        "--where", action="append", type=_condition, default=[], help="filtre champ=valeur"
+    )
+    cli.add_argument("--top-k", type=int, help="nombre de passages (défaut : profil)")
+    return cli
+
+
+def add_service_options(cli: argparse.ArgumentParser) -> None:
+    """Cas d'usage, matériel, modèles, magasin et services : options communes à
+    la recherche, à la réponse et au banc d'essai."""
     cli.add_argument("--profile", required=True, help="nom du cas d'usage (mrae, ventes…)")
     cli.add_argument("--profiles-dir", default="configs/profiles")
     cli.add_argument("--hardware", help="profil matériel (défaut : celui de cette machine)")
     cli.add_argument("--hardware-dir", default="configs/hardware")
     cli.add_argument("--models", default="configs/models.yaml")
     cli.add_argument("--store", help="magasin SQLite (défaut : $LUCIOLE_DATA_DIR ou data/)")
-    cli.add_argument(
-        "--where", action="append", type=_condition, default=[], help="filtre champ=valeur"
-    )
-    cli.add_argument("--top-k", type=int, help="nombre de passages (défaut : profil)")
     cli.add_argument("--no-opensearch", action="store_true", help="recherche par le sens seulement")
-    return cli
 
 
 def build(

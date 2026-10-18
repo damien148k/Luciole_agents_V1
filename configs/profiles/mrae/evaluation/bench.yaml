@@ -1,0 +1,23 @@
+# Banc d'essai MRAe. Le jeu de référence est tiré des réponses du porteur de
+# projet aux avis MRAe (DOCX) : chaque remarque est un cadre « Remarque N »
+# suivi de la recommandation ; la réponse renvoie aux tomes de l'étude
+# d'impact (« Tome 4 – Milieu naturel : p. 432-433 »). Mesuré sur les réponses
+# de Beaumont Sud et Brissy (2026-10-18). Ces documents restent hors du dépôt.
+reference:
+  remark_pattern: '^\s*Remarque\s*n?°?\s*(\d+)\s*$'
+  part_pattern: '\btome\s*(\d+)'
+  # « p. 432-433 », « p 214 », « page 202 », « pages 202-203 », « p. 486 à 489 »
+  page_pattern: '\b(?:p\.?|pages?)\s*(\d{1,4})(?:\s*(?:-|–|à)\s*(\d{1,4}))?'
+  # « p. 331 et 393 », « p. 432-433 (impacts bruts) et 445 »
+  page_more_pattern: '^\s*(?:\([^)]*\)\s*)?et\s*(\d{1,4})\b'
+  max_range: 30
+metrics:
+  # Le tome d'un document vient de son nom de fichier (profile.yaml).
+  part_field: tome
+  k: [1, 3, 8]
+  # Les renvois des réponses donnent souvent le début d'une section.
+  page_tolerance: 2
+baseline:
+  source: post-mortem Belacom (05-06/08/2026), 20 remarques MRAe, Luciole V3
+  esquives: 0/20 (pipeline procédural) ; 1/20 (déduction de question)
+  bon_tome: 9/10 (pipeline procédural) ; 10/10 (déduction de question)

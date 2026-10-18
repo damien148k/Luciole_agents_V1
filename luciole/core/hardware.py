@@ -114,6 +114,28 @@ def suggest_profile(
     return max(fitting, key=lambda np: np[1].gpu_memory_gb)[0]
 
 
+def models_on_cpu(
+    profile: HardwareProfile, profiles: dict[str, HardwareProfile]
+) -> HardwareProfile:
+    """Le profil d'une machine à GPU quand PyTorch ne voit pas le GPU (Windows
+    hors Docker) : embedding, reranker et OCR prennent le périphérique et les lots
+    du profil processeur de la même architecture ; le LLM et sa fenêtre restent
+    ceux de la machine, car Ollama emploie le GPU lui-même."""
+    cpu = next((p for p in profiles.values() if p.arch == profile.arch and p.device == "cpu"), None)
+    if cpu is None:
+        raise RuntimeError(f"aucun profil processeur pour l'architecture {profile.arch}")
+    return profile.model_copy(
+        update={
+            "name": f"{profile.name}-cpu",
+            "title": f"{profile.title}, modèles sur le processeur",
+            "device": "cpu",
+            "ocr_device": cpu.ocr_device,
+            "embedding_batch_size": cpu.embedding_batch_size,
+            "reranker_batch_size": cpu.reranker_batch_size,
+        }
+    )
+
+
 def smoke(root: str | Path = "configs/hardware") -> int:
     """Décrit la machine et le profil suggéré. Code de retour 0 si un profil convient."""
     arch = detect_arch()
