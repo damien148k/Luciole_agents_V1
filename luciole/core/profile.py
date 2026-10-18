@@ -18,6 +18,7 @@ réellement exécuté par le code, ou refusé à la validation. Aucune clé
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Literal
 
@@ -89,6 +90,39 @@ class RetrievalSpec(StrictModel):
     rerank_top_k: int = Field(8, ge=1)
 
 
+class IngestionSpec(StrictModel):
+    """Comment reconnaître les dossiers et lire les métadonnées par règles.
+
+    - un dossier est un sous-répertoire de la racine ; ``dossier_file`` (s'il
+      existe dedans) donne ses champs de dossier ;
+    - ``filename_patterns`` sont des expressions régulières (insensibles à la
+      casse) appliquées au nom de fichier ; chaque groupe nommé remplit le
+      champ de document du même nom (ex. ``reunion-(?P<numero_reunion>\\d+)``) ;
+    - ``document_order`` est le champ de document qui range les documents d'un
+      dossier dans le temps (ex. ``numero_reunion``) : quand des documents
+      donnent des valeurs différentes pour un champ de dossier, celle du
+      document le plus récent l'emporte.
+    """
+
+    dossier_file: str = Field("dossier.yaml", pattern=r"^[^/\\]+$")
+    filename_patterns: list[str] = Field(default_factory=list)
+    document_order: str | None = None
+
+    @model_validator(mode="after")
+    def _patterns_compile(self) -> IngestionSpec:
+        for pattern in self.filename_patterns:
+            try:
+                compiled = re.compile(pattern, re.IGNORECASE)
+            except re.error as e:
+                raise ValueError(f"expression régulière invalide `{pattern}` : {e}") from e
+            if not compiled.groupindex:
+                raise ValueError(f"`{pattern}` n'a aucun groupe nommé : il ne remplit aucun champ")
+        return self
+
+    def compiled_patterns(self) -> list[re.Pattern[str]]:
+        return [re.compile(p, re.IGNORECASE) for p in self.filename_patterns]
+
+
 class UseCaseProfile(StrictModel):
     """Contenu validé de ``profile.yaml``."""
 
@@ -96,8 +130,32 @@ class UseCaseProfile(StrictModel):
     title: str
     description: str = ""
     entities: EntitySchema = Field(default_factory=EntitySchema)
+    ingestion: IngestionSpec = Field(default_factory=IngestionSpec)
     chunking: ChunkingSpec = Field(default_factory=ChunkingSpec)
     retrieval: RetrievalSpec = Field(default_factory=RetrievalSpec)
+
+    @model_validator(mode="after")
+    def _ingestion_matches_entities(self) -> UseCaseProfile:
+        doc_fields = self.entities.document
+        for pattern in self.ingestion.compiled_patterns():
+            for group in pattern.groupindex:
+                if group not in doc_fields:
+                    raise ValueError(
+                        f"le groupe `{group}` de `{pattern.pattern}` n'est pas un champ de "
+                        f"document du profil ({', '.join(doc_fields) or 'aucun'})"
+                    )
+        order = self.ingestion.document_order
+        if order is not None:
+            if order not in doc_fields:
+                raise ValueError(f"`document_order` : `{order}` n'est pas un champ de document")
+            if doc_fields[order].type not in ("integer", "number", "date"):
+                raise ValueError(f"`document_order` : `{order}` doit être un nombre ou une date")
+        overlap = set(doc_fields) & set(self.entities.dossier)
+        if overlap:
+            raise ValueError(
+                f"champ(s) à la fois de dossier et de document : {', '.join(sorted(overlap))}"
+            )
+        return self
 
 
 class Rule(StrictModel):

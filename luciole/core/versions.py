@@ -21,6 +21,9 @@ INDEX_SCHEMA_VERSION = 1
 PARSER_VERSION = 1
 #: Modèle d'embedding, préfixes et vecteurs nommés produits.
 EMBEDDING_PROFILE_VERSION = 1
+#: Tables du magasin structuré (``luciole.store``). Un magasin d'une autre
+#: version est refusé à l'ouverture plutôt que lu de travers.
+STORE_SCHEMA_VERSION = 1
 
 
 @dataclass(frozen=True)

@@ -12,20 +12,20 @@ from luciole.ingestion.text_parsers import (
     default_text_registry,
 )
 
-CORPUS = Path(__file__).resolve().parent / "corpus" / "ventes"
+CORPUS = Path(__file__).resolve().parent / "corpus" / "ventes" / "atelier-dubois"
 
 
 def test_corpus_reunions_present():
     assert sorted(p.name for p in CORPUS.glob("*.transcript.md")) == [
-        "atelier-dubois_reunion-1.transcript.md",
-        "atelier-dubois_reunion-2.transcript.md",
-        "atelier-dubois_reunion-3.transcript.md",
+        "reunion-1.transcript.md",
+        "reunion-2.transcript.md",
+        "reunion-3.transcript.md",
     ]
 
 
 @pytest.mark.parametrize("n", [1, 2, 3])
 def test_transcription_reunion(n):
-    doc = TranscriptParser().parse(CORPUS / f"atelier-dubois_reunion-{n}.transcript.md")
+    doc = TranscriptParser().parse(CORPUS / f"reunion-{n}.transcript.md")
     assert doc.doc_type == "transcript"
     # Le front matter alimente les métadonnées du cas d'usage « ventes ».
     assert doc.metadata["client"] == "Atelier Dubois (fictif)"
