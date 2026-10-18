@@ -17,6 +17,18 @@ Les en-têtes et pieds de page répétés sont reconnus et typés ``header`` /
 ``footer`` : ils sortent des projections et des futurs embeddings. Les
 nœuds OCR gardent boîte et confiance. Tout est consigné dans ``PageInfo``
 (méthode retenue, qualité, replis, notes).
+
+Réglages mesurés sur de vraies études d'impact (A3 paysage, 202 pages) :
+
+- les coordonnées des blocs sont ramenées dans le repère de la page
+  **affichée** (``rotation_matrix``) : un PDF portrait tourné de 90° se lit
+  sinon dans le mauvais ordre et ses en-têtes ne sont pas reconnus ;
+- une page sans texte, sans image et sans tracé est **vide** (verso d'une
+  double page), pas une page à OCR ;
+- les pages A3 « deux pages côte à côte » sont lues colonne par colonne ;
+- le seuil « vectoriel complexe » est à 5000 tracés : jusqu'à ~2000 tracés
+  ce sont des tableaux que pymupdf4llm rend très bien (< 3 s) ; au-delà de
+  7000 ce sont des cartes, sans tableau, où le texte natif suffit.
 """
 
 from __future__ import annotations
@@ -46,14 +58,47 @@ from luciole.ingestion.text_parsers import add_markdown_blocks
 
 _DIGITS_RE = re.compile(r"\d+")
 _SPACES_RE = re.compile(r"\s+")
-_PUNCT_RE = re.compile(r"[^\w#]+")
+_DASHES_RE = re.compile(r"[‐-―−]")
+_MARKUP_RE = re.compile(r"[*`_]+")
+_LETTER_RE = re.compile(r"[^\W\d_]")
+_PAGE_NUMBER_RE = re.compile(r"^(page|p\.)?\s*#\s*([/-]|sur|of)?\s*#?$")
+_BLANK_NOTE = "page vide : ni texte, ni image, ni tracé"
+_MAX_MARGIN_LINE = 160  # au-delà, une ligne de bande n'est plus un en-tête mais du texte
 
 
 def _normalize(line: str) -> str:
     """Forme comparable d'une ligne d'en-tête ou de pied : chiffres neutralisés
-    (« Page 3 / 120 » et « Page 4 / 120 » se correspondent), espaces réduits."""
-    neutral = _PUNCT_RE.sub(" ", _DIGITS_RE.sub("#", line.lower()))
+    (« Page 3 / 120 » et « Page 4 / 120 » se correspondent), tirets unifiés,
+    balises Markdown (``**``) et espaces réduits. La ponctuation est gardée :
+    « 14/47 » (numéro de page) et « 0,0 » (cellule de tableau) restent distincts."""
+    neutral = _DIGITS_RE.sub("#", _MARKUP_RE.sub("", _DASHES_RE.sub("-", line.lower())))
     return _SPACES_RE.sub(" ", neutral).strip()
+
+
+_PICTURE_TEXT_RE = re.compile(r"<!--\s*(Start|End) of picture text\s*-->")
+_HTML_TAGS_RE = re.compile(r"</?(mark|b|i|u|sup|sub)>")
+_BR_RE = re.compile(r"<br\s*/?>")
+
+
+def _clean_markdown(md: str) -> str:
+    """Retire les balises HTML que pymupdf4llm glisse dans son Markdown (vu sur
+    de vraies études : ``<!-- Start of picture text -->``, ``<br>``, ``<mark>``)."""
+    md = _HTML_TAGS_RE.sub("", _PICTURE_TEXT_RE.sub("", md))
+    # Un <br> dans une ligne de tableau casserait la ligne : il devient une espace.
+    lines = [
+        _BR_RE.sub(" ", line) if line.lstrip().startswith("|") else _BR_RE.sub("\n", line)
+        for line in md.splitlines()
+    ]
+    return "\n".join(lines)
+
+
+def _is_margin_line(normalized: str) -> bool:
+    """Une ligne de bande est un en-tête ou un pied plausible si elle porte des
+    lettres, ou si c'est un numéro de page ; « 0,0 » ou « [135° ; 315°[ »
+    (cellules de tableau en bas de page) n'en sont pas."""
+    if not 3 <= len(normalized) <= _MAX_MARGIN_LINE:
+        return normalized == "#"
+    return bool(_LETTER_RE.search(normalized)) or bool(_PAGE_NUMBER_RE.match(normalized))
 
 
 @dataclass
@@ -66,11 +111,25 @@ class _Block:
     bbox: BBox | None = None
     confidence: float | None = None
     attributes: dict = field(default_factory=dict)
+    column: int = 0
 
-    def sort_key(self) -> tuple[float, float]:
+    def sort_key(self) -> tuple[int, float, float]:
         if self.bbox is None:
-            return (math.inf, 0.0)
-        return (round(self.bbox.y0 / 4) * 4, self.bbox.x0)
+            return (self.column, math.inf, 0.0)
+        return (self.column, round(self.bbox.y0 / 4) * 4, self.bbox.x0)
+
+
+def _text_blocks(page: pymupdf.Page) -> list[tuple[pymupdf.Rect, str]]:
+    """Blocs de texte natif avec leur boîte dans le repère de la page affichée
+    (``get_text`` rend des coordonnées non tournées)."""
+    out = []
+    for x0, y0, x1, y1, text, _no, btype in page.get_text("blocks"):
+        if btype != 0 or not text.strip():  # 1 = image
+            continue
+        rect = pymupdf.Rect(x0, y0, x1, y1) * page.rotation_matrix
+        rect.normalize()
+        out.append((rect, text))
+    return out
 
 
 class PdfParser(Parser):
@@ -82,11 +141,13 @@ class PdfParser(Parser):
         ocr: OcrEngine | None = None,
         min_chars_per_page: int = 50,
         min_words_per_page: int = 8,
-        max_drawings_per_page: int = 500,
+        max_drawings_per_page: int = 5000,
         min_yield_ratio: float = 0.5,
         yield_reference_chars: int = 200,
         ocr_dpi: int = 300,
-        repeated_line_ratio: float = 0.4,
+        repeated_line_ratio: float = 0.1,
+        repeated_line_min_pages: int = 3,
+        margin_band_ratio: float = 0.12,
     ) -> None:
         self.ocr = ocr
         self.min_chars_per_page = min_chars_per_page
@@ -95,7 +156,11 @@ class PdfParser(Parser):
         self.min_yield_ratio = min_yield_ratio
         self.yield_reference_chars = yield_reference_chars
         self.ocr_dpi = ocr_dpi
+        # Une ligne de la bande haute (ou basse) de la page est un en-tête (ou
+        # un pied) si elle revient sur max(min_pages, ratio × pages) pages.
         self.repeated_line_ratio = repeated_line_ratio
+        self.repeated_line_min_pages = repeated_line_min_pages
+        self.margin_band_ratio = margin_band_ratio
 
     # ------------------------------------------------------------------
     def parse(self, path: str | Path) -> ParsedDocument:
@@ -134,8 +199,10 @@ class PdfParser(Parser):
 
         meta = doc.metadata or {}
         needs_ocr = sum(1 for p in pages if p.needs_ocr)
+        blank = sum(1 for p in pages if _BLANK_NOTE in p.notes)
         logger.info(
-            f"{path.name} : {len(pages)} pages, méthodes {dict(methods)}, {needs_ocr} page(s) à OCR"
+            f"{path.name} : {len(pages)} pages, méthodes {dict(methods)}, "
+            f"{needs_ocr} page(s) à OCR, {blank} page(s) vide(s)"
         )
         return ParsedDocument(
             file_name=path.name,
@@ -150,6 +217,7 @@ class PdfParser(Parser):
                 "pages_native_text": methods.get("native_text", 0),
                 "pages_ocr": methods.get("ocr", 0),
                 "pages_without_text": methods.get("none", 0),
+                "pages_blank": blank,
                 "pages_need_ocr": needs_ocr,
             },
             pages=pages,
@@ -157,27 +225,42 @@ class PdfParser(Parser):
         )
 
     # ------------------------------------------------------------------
+    def _margin_bands(self, page: pymupdf.Page) -> tuple[float, float]:
+        """Limites (y) de la bande haute et de la bande basse de la page affichée."""
+        h = page.rect.height
+        return h * self.margin_band_ratio, h * (1 - self.margin_band_ratio)
+
     def _repeated_lines(self, doc: pymupdf.Document) -> dict[str, NodeType]:
-        """Bloc le plus haut et bloc le plus bas de chaque page ; ceux qui
-        reviennent sur assez de pages sont des en-têtes (haut) ou des pieds
+        """Lignes de la bande haute et de la bande basse de chaque page ; celles
+        qui reviennent sur assez de pages sont des en-têtes (haut) ou des pieds
         (bas). Les chiffres sont neutralisés pour que « Page 3 / 120 » et
-        « Page 4 / 120 » se correspondent."""
-        if len(doc) < 3:
+        « Page 4 / 120 » se correspondent. On regarde toute la bande, pas un
+        seul bloc : une double page A3 porte deux en-têtes et deux pieds, et
+        un logo ou une légende peut descendre plus bas que le pied."""
+        if len(doc) < self.repeated_line_min_pages:
             return {}
         counts: Counter[tuple[str, NodeType]] = Counter()
         for page in doc:
-            blocks = [b for b in page.get_text("blocks") if b[6] == 0 and b[4].strip()]
-            if not blocks:
-                continue
-            blocks.sort(key=lambda b: b[1])
-            top = _normalize(blocks[0][4].splitlines()[0])
-            bottom = _normalize(blocks[-1][4].strip().splitlines()[-1])
-            seen = {(top, "header"), (bottom, "footer")}
+            top_limit, bottom_limit = self._margin_bands(page)
+            seen: set[tuple[str, NodeType]] = set()
+            for rect, text in _text_blocks(page):
+                if rect.y1 <= top_limit:
+                    kind: NodeType = "header"
+                elif rect.y0 >= bottom_limit:
+                    kind = "footer"
+                else:
+                    continue
+                # Le bloc entier (forme des nœuds natifs) et chaque ligne
+                # (forme des nœuds Markdown) sont comptés.
+                for raw in (text, *text.splitlines()):
+                    line = _normalize(raw)
+                    if _is_margin_line(line):
+                        seen.add((line, kind))
             counts.update(seen)
-        threshold = max(3, math.ceil(self.repeated_line_ratio * len(doc)))
-        return {
-            line: kind for (line, kind), n in counts.items() if n >= threshold and len(line) >= 3
-        }
+        threshold = max(
+            self.repeated_line_min_pages, math.ceil(self.repeated_line_ratio * len(doc))
+        )
+        return {line: kind for (line, kind), n in counts.items() if n >= threshold}
 
     def _parse_page(
         self,
@@ -193,6 +276,12 @@ class PdfParser(Parser):
         blocks: list[_Block] = []
 
         drawings = len(page.get_drawings())
+        if chars == 0 and drawings == 0 and not page.get_images():
+            # Verso blanc d'une double page : rien à extraire, rien à OCR.
+            info.quality = 0.0
+            info.notes.append(_BLANK_NOTE)
+            return info, blocks
+
         complex_vector = drawings > self.max_drawings_per_page
         if complex_vector:
             info.notes.append(f"page vectorielle complexe : {drawings} tracés")
@@ -263,23 +352,43 @@ class PdfParser(Parser):
             return None
         if not chunks:
             return None
-        return chunks[0].get("text") or ""
+        return _clean_markdown(chunks[0].get("text") or "")
+
+    def _gutter(self, page: pymupdf.Page, blocks: list[tuple[pymupdf.Rect, str]]) -> float | None:
+        """Abscisse de la gouttière d'une page paysage « deux pages côte à
+        côte », ou ``None``. Il faut des blocs de corps des deux côtés et aucun
+        qui chevauche le milieu (les en-têtes et pieds pleine largeur sont
+        ignorés)."""
+        if page.rect.width <= page.rect.height:
+            return None
+        center = page.rect.width / 2
+        top_limit, bottom_limit = self._margin_bands(page)
+        left = right = 0
+        for rect, _ in blocks:
+            if rect.y1 <= top_limit or rect.y0 >= bottom_limit:
+                continue
+            if rect.x0 < center < rect.x1:
+                return None
+            if rect.x1 <= center:
+                left += 1
+            else:
+                right += 1
+        return center if left and right else None
 
     def _native_blocks(self, page: pymupdf.Page, repeated: dict[str, NodeType]) -> list[_Block]:
+        raw = _text_blocks(page)
+        gutter = self._gutter(page, raw)
         out: list[_Block] = []
-        for x0, y0, x1, y1, text, _no, btype in page.get_text("blocks"):
-            if btype != 0:  # 1 = image
-                continue
+        for rect, text in raw:
             text = " ".join(text.split())
-            if not text:
-                continue
             node_type: NodeType = repeated.get(_normalize(text), "paragraph")
             out.append(
                 _Block(
                     node_type=node_type,
                     text=text,
                     method="native_text",
-                    bbox=BBox(x0=x0, y0=y0, x1=x1, y1=y1),
+                    bbox=BBox(x0=rect.x0, y0=rect.y0, x1=rect.x1, y1=rect.y1),
+                    column=1 if gutter is not None and rect.x0 >= gutter else 0,
                 )
             )
         return out

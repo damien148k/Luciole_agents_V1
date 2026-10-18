@@ -13,3 +13,4 @@ Une ligne par choix : ce qu'on a décidé, pourquoi, quand. On ne rediscute pas 
 | 2026-10-18 | `document_id` = hash du chemin relatif et du contenu | V5 utilisait le nom de fichier seul : collisions entre dossiers |
 | 2026-10-18 | Qdrant ≥ 1.12 avec vecteurs nommés dès le départ ; OpenSearch gardé pour BM25 | Permet multi-dense puis sparse sans changer de schéma ; BM25 reste la base de comparaison |
 | 2026-10-18 | Magasin structuré local (SQLite ou DuckDB) pour les métadonnées | Le cas commerciaux filtre et agrège sur des dizaines de dossiers avant de lire |
+| 2026-10-18 | Parser PDF : seuil « page vectorielle complexe » à 5000 tracés, en-têtes/pieds cherchés dans les bandes haute et basse (12 % de la page, ≥ 3 pages), coordonnées dans le repère de la page affichée | Mesuré sur 202 pages d'études d'impact publiques : tableaux ≤ 2000 tracés rendus en < 3 s, cartes ≥ 7000 ; doubles pages A3 tournées de 90° (voir JOURNAL, PR 1d) |

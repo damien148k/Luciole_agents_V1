@@ -8,11 +8,11 @@ import pytest
 
 from luciole.core.document import BBox
 from luciole.ingestion.ocr import OcrLine, group_lines, render_page, to_points
-from luciole.ingestion.pdf import PdfParser, _normalize
+from luciole.ingestion.pdf import PdfParser, _clean_markdown, _is_margin_line, _normalize
 from luciole.ingestion.registry import default_registry
 
 sys.path.insert(0, str(Path(__file__).resolve().parent / "corpus" / "pdf"))
-from build_pdf_corpus import LOREM, build_all  # noqa: E402
+from build_pdf_corpus import LOREM, TWO_UP_LEFT, TWO_UP_RIGHT, build_all  # noqa: E402
 
 
 @pytest.fixture(scope="session")
@@ -142,6 +142,64 @@ def test_routage_page_par_page(corpus):
     assert doc.metadata["pages_ocr"] == 1 and doc.metadata["pages_markdown"] == 2
 
 
+def test_page_tournee_deux_pages_cote_a_cote(corpus):
+    """Le format des études d'impact wpd : PDF portrait tourné de 90°, deux
+    demi-pages par page. Les boîtes sont ramenées dans la page affichée, les
+    en-têtes et pieds de chaque demi-page sont reconnus, et la demi-page de
+    gauche se lit avant celle de droite."""
+    doc = PdfParser(ocr=FakeOcr()).parse(corpus["two_up_rotated.pdf"])
+    assert doc.metadata["page_count"] == 4
+    assert [p.method for p in doc.pages] == ["markdown", None, "markdown", "markdown"]
+    headers = [n for n in doc.nodes if n.node_type == "header"]
+    footers = [n for n in doc.nodes if n.node_type == "footer"]
+    assert len(headers) == 6 and len(footers) == 6, "deux par page écrite"
+    cells = [n for n in doc.nodes if n.text == "0,0"]
+    assert len(cells) == 6 and all(n.node_type == "paragraph" for n in cells), "cellule ≠ pied"
+    text = doc.to_text()
+    assert "ETAT ACOUSTIQUE INITIAL" not in text and "/47" not in text
+    assert all(f"{t} (page 3)" in text for t in TWO_UP_LEFT + TWO_UP_RIGHT)
+
+
+def test_page_tournee_en_natif_colonne_par_colonne(corpus, monkeypatch):
+    """En texte natif (cartes, replis), les boîtes sont ramenées dans la page
+    affichée et la demi-page de gauche se lit entièrement avant la droite."""
+    monkeypatch.setattr(PdfParser, "_markdown", staticmethod(lambda doc, i: None))
+    doc = PdfParser().parse(corpus["two_up_rotated.pdf"])
+    assert doc.pages[0].method == "native_text"
+    headers = [n for n in doc.nodes if n.node_type == "header"]
+    footers = [n for n in doc.nodes if n.node_type == "footer"]
+    assert len(headers) == 6 and len(footers) == 6
+    assert all(n.bbox.y1 < 60 for n in headers), "boîtes dans le repère de la page affichée"
+    assert all(n.bbox.y0 > 780 and n.bbox.x1 < 1191 for n in footers)
+    body = [n.text for n in doc.nodes_on_page(1) if n.node_type == "paragraph" and n.text != "0,0"]
+    assert body == [f"{t} (page 1)" for t in TWO_UP_LEFT + TWO_UP_RIGHT]
+
+
+def test_page_blanche_n_est_pas_a_ocr(corpus):
+    ocr = FakeOcr()
+    doc = PdfParser(ocr=ocr).parse(corpus["two_up_rotated.pdf"])
+    blank = doc.pages[1]
+    assert blank.method is None and not blank.needs_ocr and blank.quality == 0
+    assert blank.notes == ["page vide : ni texte, ni image, ni tracé"]
+    assert ocr.calls == 0, "aucune page à OCR dans ce document"
+    assert doc.metadata["pages_blank"] == 1 and doc.metadata["pages_need_ocr"] == 0
+    assert doc.nodes_on_page(2) == []
+
+
+def test_tableau_dense_reste_en_markdown(corpus):
+    """600 cellules tracées dépassent l'ancien seuil de 500 tracés ; mesuré sur
+    de vraies études : jusqu'à ~2000 tracés ce sont des tableaux que
+    pymupdf4llm rend bien, le seuil « plan » est donc à 5000."""
+    doc = PdfParser().parse(corpus["dense_table.pdf"])
+    page = doc.pages[0]
+    assert page.method == "markdown" and page.notes == []
+    tables = [n for n in doc.nodes if n.node_type == "table"]
+    assert tables and "PF3" in tables[0].text and "49 m/s" in doc.to_text()
+    assert tables[0].attributes["rows"] >= 40
+    with pymupdf.open(corpus["dense_table.pdf"]) as raw:
+        assert len(raw[0].get_drawings()) > 500
+
+
 def test_sans_ocr_le_texte_natif_d_une_page_pauvre_est_garde(tmp_path):
     pdf = tmp_path / "pauvre.pdf"
     d = pymupdf.open()
@@ -160,6 +218,27 @@ def test_sans_ocr_le_texte_natif_d_une_page_pauvre_est_garde(tmp_path):
 def test_normalize_neutralise_les_numeros():
     assert _normalize("Page 3 / 120") == _normalize("Page 47 / 120")
     assert _normalize("Projet   Vent du Nord") == "projet vent du nord"
+    assert _normalize("**Etude d’impact – tome 1**") == _normalize("Etude d’impact - tome 2")
+    assert _normalize("14/47") != _normalize("0,0"), "numéro de page ≠ cellule de tableau"
+
+
+def test_clean_markdown_retire_le_html_de_pymupdf4llm():
+    md = (
+        "<!-- Start of picture text -->\nPROJET EOLIEN<br>RAPPORT<br><!-- End of picture text -->"
+        "\n\n**<mark>1 A</mark> RTICULATION**\n\n|Vitesse<br>1 m/s|PF1<br>31,5|\n|---|---|"
+    )
+    assert _clean_markdown(md) == (
+        "\nPROJET EOLIEN\nRAPPORT\n\n\n**1 A RTICULATION**\n\n|Vitesse 1 m/s|PF1 31,5|\n|---|---|"
+    ), "un <br> dans une ligne de tableau devient une espace, ailleurs un saut de ligne"
+
+
+def test_is_margin_line():
+    assert _is_margin_line(_normalize("ETAT ACOUSTIQUE INITIAL"))
+    assert _is_margin_line(_normalize("14/47")) and _is_margin_line(_normalize("Page 3 sur 120"))
+    assert _is_margin_line(_normalize("7"))
+    assert not _is_margin_line(_normalize("0,0"))
+    assert not _is_margin_line(_normalize("[135° ; 315°["))
+    assert not _is_margin_line(_normalize("x" * 200))
 
 
 def test_group_lines_et_conversion():
