@@ -17,17 +17,20 @@
                                       Surveille la racine et garde l'index à jour (Ctrl+C pour arrêter).
   .\DEV.ps1 -Action search -UseCase ventes -Query "question"
                                       Pose une question à l'index (sens + mots, reranker) et cite les passages.
+  .\DEV.ps1 -Action ask -UseCase ventes -Query "question"
+                                      Réponse sourcée par le LLM local (Ollama lancé), verdict et trace.
+  .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query).
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "ask", "api", "smoke")]
     [string]$Action,
     # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
     [string]$UseCase,
-    # Pour -Action search : la question posée.
+    # Pour -Action search et ask : la question posée.
     [string]$Query,
     # Pour -Action index, watch, search et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
@@ -74,7 +77,8 @@ switch ($Action) {
         if ($LASTEXITCODE -ne 0) { throw "Docker : services non démarrés (Docker Desktop est-il lancé ?)" }
         Write-OK "Services prêts"
         Write-Step "Tests d'intégration (Docker + GPU)"
-        uv run --extra embed pytest -m integration
+        # -rP : affiche aussi ce que les tests réussis impriment (scores, réponse du LLM).
+        uv run --extra embed pytest -m integration -rP
     }
     "services-stop" {
         Write-Step "Arrêt de Qdrant et OpenSearch"
@@ -111,6 +115,20 @@ switch ($Action) {
         if ($Hardware) { $extra = @("--hardware", $Hardware) }
         uv run --extra embed python -m luciole.retrieval.search $Query --profile $UseCase @extra
         if ($LASTEXITCODE -ne 0) { throw "Recherche en échec : voir le message ci-dessus" }
+    }
+    "ask" {
+        Ensure-Uv
+        if (-not $UseCase -or -not $Query) { throw "Donner -UseCase <cas d'usage> et -Query <question>" }
+        Write-Step "Réponse sourcée (cas d'usage $UseCase), LLM servi par Ollama"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        uv run --extra embed python -m luciole.generation.ask $Query --profile $UseCase @extra
+        if ($LASTEXITCODE -ne 0) { throw "Réponse en échec : voir le message ci-dessus" }
+    }
+    "api" {
+        Ensure-Uv
+        Write-Step "API sur http://127.0.0.1:8000 (Ctrl+C pour arrêter)"
+        uv run --extra embed uvicorn luciole.api.app:app --host 127.0.0.1 --port 8000
     }
     "smoke" {
         $compose = @("-f", "docker/compose.services.yaml", "-f", "docker/compose.app.yaml")

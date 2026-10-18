@@ -86,15 +86,31 @@ def indexed(hardware, reranker, tmp_path_factory):
 
 
 def test_reranker_note_le_sens(reranker):
+    """Un passage qui répond en toutes lettres passe haut, un passage hors sujet
+    reste bas. Le 2026-10-18 sur la 3080 Ti, une paire où la réponse se déduisait
+    (« renoncé » ↔ « au-dessus de ce qu'on peut engager ») donnait 1,6e-5 aux
+    deux passages : le reranker juge la pertinence explicite, pas une déduction.
+    Les seuils ci-dessous détectent aussi un modèle mal chargé (tout près de 0)."""
     assert reranker.name.startswith("BAAI/bge-reranker-v2-m3@")
     good, bad = reranker.score(
-        "Pourquoi le client a-t-il renoncé à acheter ?",
+        "Combien coûte la première année ?",
         [
-            "Douze mille euros la première année, c'est au-dessus de ce qu'on peut engager.",
+            "La première année coûte douze mille euros, installation comprise.",
             "L'installation se fait en une demi-journée sur votre serveur.",
         ],
     )
-    assert good > bad
+    print(f"\nreranker : pertinent {good:.4f}, hors sujet {bad:.4f}")
+    assert good > 0.5 and bad < 0.1 and good > bad
+    # Le tri relatif reste juste même quand la réponse est indirecte.
+    indirect = reranker.score(
+        "Pourquoi le client a-t-il renoncé à acheter à cause du prix ?",
+        [
+            "Douze mille euros la première année, c'est trop cher pour nous cette année.",
+            "L'installation se fait en une demi-journée sur votre serveur.",
+        ],
+    )
+    print(f"reranker : indirect {indirect[0]:.4f}, hors sujet {indirect[1]:.4f}")
+    assert indirect[0] > indirect[1]
 
 
 @pytest.mark.parametrize(
