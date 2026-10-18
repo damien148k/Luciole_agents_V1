@@ -12,7 +12,7 @@ from pathlib import Path
 
 import yaml
 
-from luciole.core.document import NodeBuilder, PageInfo, ParsedDocument
+from luciole.core.document import ExtractionMethod, NodeBuilder, PageInfo, ParsedDocument
 from luciole.ingestion.base import Parser
 
 _FRONT_MATTER_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n", re.S)
@@ -105,7 +105,7 @@ class MarkdownParser(Parser):
         path = Path(path)
         meta, body = _split_front_matter(_read(path))
         b = NodeBuilder()
-        self._build(b, body)
+        add_markdown_blocks(b, body)
         return ParsedDocument(
             file_name=path.name,
             source_path=str(path),
@@ -115,67 +115,72 @@ class MarkdownParser(Parser):
             nodes=b.nodes(),
         )
 
-    @staticmethod
-    def _build(b: NodeBuilder, body: str) -> None:
-        lines = body.splitlines()
-        i = 0
-        para: list[str] = []
-        first_heading_seen = False
 
-        def flush_para() -> None:
-            if para:
-                b.add("paragraph", " ".join(s.strip() for s in para), page=1, method="plain")
-                para.clear()
+def add_markdown_blocks(
+    b: NodeBuilder, body: str, *, page: int = 1, method: ExtractionMethod = "plain"
+) -> None:
+    """Ajoute à ``b`` les blocs d'un texte Markdown (titres, listes, tableaux,
+    code, paragraphes). Partagé par le parser Markdown et le parser PDF, qui
+    reçoit du Markdown de pymupdf4llm page par page."""
+    lines = body.splitlines()
+    i = 0
+    para: list[str] = []
+    first_heading_seen = False
 
-        while i < len(lines):
-            line = lines[i]
-            if _FENCE_RE.match(line):
-                flush_para()
-                j = i + 1
-                while j < len(lines) and not _FENCE_RE.match(lines[j]):
-                    j += 1
-                b.add("code", "\n".join(lines[i + 1 : j]), page=1, method="plain")
-                i = j + 1
-                continue
-            m = _HEADING_RE.match(line)
-            if m:
-                flush_para()
-                level = len(m.group(1))
-                # Le premier titre de niveau 1 est le titre du document.
-                if level == 1 and not first_heading_seen:
-                    b.add("title", m.group(2), page=1, level=1, method="plain")
-                else:
-                    b.add("heading", m.group(2), page=1, level=level, method="plain")
-                first_heading_seen = True
-                i += 1
-                continue
-            if _TABLE_LINE_RE.match(line):
-                flush_para()
-                j = i
-                while j < len(lines) and _TABLE_LINE_RE.match(lines[j]):
-                    j += 1
-                rows = lines[i:j]
-                b.add(
-                    "table",
-                    "\n".join(r.strip() for r in rows),
-                    page=1,
-                    method="plain",
-                    attributes={"rows": len(rows)},
-                )
-                i = j
-                continue
-            m = _LIST_RE.match(line)
-            if m:
-                flush_para()
-                b.add("list_item", m.group(1), page=1, method="plain")
-                i += 1
-                continue
-            if not line.strip():
-                flush_para()
+    def flush_para() -> None:
+        if para:
+            b.add("paragraph", " ".join(s.strip() for s in para), page=page, method=method)
+            para.clear()
+
+    while i < len(lines):
+        line = lines[i]
+        if _FENCE_RE.match(line):
+            flush_para()
+            j = i + 1
+            while j < len(lines) and not _FENCE_RE.match(lines[j]):
+                j += 1
+            b.add("code", "\n".join(lines[i + 1 : j]), page=page, method=method)
+            i = j + 1
+            continue
+        m = _HEADING_RE.match(line)
+        if m:
+            flush_para()
+            level = len(m.group(1))
+            # Le premier titre de niveau 1 est le titre du document.
+            if level == 1 and not first_heading_seen:
+                b.add("title", m.group(2), page=page, level=1, method=method)
             else:
-                para.append(line)
+                b.add("heading", m.group(2), page=page, level=level, method=method)
+            first_heading_seen = True
             i += 1
-        flush_para()
+            continue
+        if _TABLE_LINE_RE.match(line):
+            flush_para()
+            j = i
+            while j < len(lines) and _TABLE_LINE_RE.match(lines[j]):
+                j += 1
+            rows = lines[i:j]
+            b.add(
+                "table",
+                "\n".join(r.strip() for r in rows),
+                page=page,
+                method=method,
+                attributes={"rows": len(rows)},
+            )
+            i = j
+            continue
+        m = _LIST_RE.match(line)
+        if m:
+            flush_para()
+            b.add("list_item", m.group(1), page=page, method=method)
+            i += 1
+            continue
+        if not line.strip():
+            flush_para()
+        else:
+            para.append(line)
+        i += 1
+    flush_para()
 
 
 class TranscriptParser(Parser):
