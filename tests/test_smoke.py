@@ -25,12 +25,18 @@ from test_model_files import SPEC, fake_downloader  # noqa: E402
 PROFILES = list_hardware_profiles(ROOT / "configs" / "hardware")
 
 
-def fake_torch(cuda: bool):
+def fake_torch(cuda: bool, init_error: str | None = None):
+    def init():
+        if init_error:
+            raise RuntimeError(init_error)
+
     return lambda: SimpleNamespace(
         __version__="2.14.1",
         version=SimpleNamespace(cuda="13.0"),
         cuda=SimpleNamespace(
-            is_available=lambda: cuda, get_device_name=lambda i: "NVIDIA GeForce RTX 3080 Ti"
+            is_available=lambda: cuda,
+            get_device_name=lambda i: "NVIDIA GeForce RTX 3080 Ti",
+            init=init,
         ),
     )
 
@@ -63,6 +69,11 @@ def test_pytorch_et_gpu():
     no_gpu = check_torch(gpu, fake_torch(False))
     assert not no_gpu.ok and "pilote NVIDIA 580" in no_gpu.detail
     assert check_torch(cpu, fake_torch(False)).ok
+    too_old = "The NVIDIA driver on your system is too old\n(found version 12080)."
+    old_driver = check_torch(gpu, fake_torch(False, too_old))
+    assert "PyTorch dit : The NVIDIA driver on your system is too old (found version 12080)." in (
+        old_driver.detail
+    )
 
     def absent():
         raise ImportError("torch")
