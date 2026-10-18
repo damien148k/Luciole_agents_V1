@@ -6,6 +6,8 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
+import yaml
+
 from luciole.core.hardware import list_hardware_profiles
 from luciole.core.model_files import Manifest, fetch
 from luciole.smoke import (
@@ -130,3 +132,13 @@ def test_ligne_de_commande_rapporte_les_echecs(tmp_path, monkeypatch, capsys):
     assert code == 1
     assert "[ÉCHEC] modèle bge-m3" in out and "[OK] qdrant" in out
     assert "[ÉCHEC] opensearch" in out and "échec(s)" in out
+
+
+def test_compose_donne_cuda_au_conteneur():
+    # Avec « utility » seul, nvidia-smi marche dans le conteneur mais PyTorch
+    # ne trouve pas la bibliothèque CUDA (vécu sur la 3080 Ti).
+    compose = yaml.safe_load(
+        (Path(__file__).parents[1] / "docker" / "compose.app.yaml").read_text(encoding="utf-8")
+    )
+    devices = compose["services"]["luciole"]["deploy"]["resources"]["reservations"]["devices"]
+    assert {"gpu", "compute", "utility"} <= set(devices[0]["capabilities"])
