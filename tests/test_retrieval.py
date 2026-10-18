@@ -92,7 +92,7 @@ def test_bon_passage_cite_avec_son_parent(env):
     assert top.unit.relative_path == "atelier-dubois/reunion-3.transcript.md"
     assert top.unit.kind == "parent" and top.hit.kind == "child"
     assert top.hit.parent_id == top.unit.chunk_id and top.hit.text in top.text
-    assert top.citation.startswith("reunion-3.transcript.md")
+    assert top.citation.startswith("atelier-dubois/reunion-3.transcript.md")
     assert set(top.ranks) <= set(result.lists) and top.rerank is not None
     assert len(result.passages) <= 3 and result.reranker == "faux-reranker"
     trace = result.trace()
@@ -230,7 +230,9 @@ def test_ligne_de_commande(env, capsys):
         opensearch=env.opensearch,
     )
     out = capsys.readouterr().out
-    assert code == 0 and "1. reunion-3.transcript.md" in out and "faux-reranker" in out
+    assert (
+        code == 0 and "1. atelier-dubois/reunion-3.transcript.md" in out and "faux-reranker" in out
+    )
     search_main(
         [
             QUERY,

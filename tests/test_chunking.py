@@ -333,7 +333,7 @@ def test_entetes_et_pieds_hors_des_morceaux(pdfs):
     assert all("Tome 4" not in c.text and "/ 3" not in c.text for c in chunks)
     second = next(c for c in chunks if c.page_start == 2)
     assert second.page_labels == ["2/3"]
-    assert second.citation() == "simple.pdf, page 2/3 (PDF p. 2)"
+    assert second.citation() == "d/simple.pdf, page 2/3 (PDF p. 2)"
     assert second.context == "Résumé non technique > 2. Chapitre 2"
 
 

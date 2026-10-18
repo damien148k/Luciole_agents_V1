@@ -94,7 +94,7 @@ def test_reponse_propre_suffisante(env):
     assert result.answer == GOOD and 0 < result.confidence <= 1
     call = llm.calls[0]
     assert call["system"] == PROMPTS.system
-    assert "[Source: reunion-3.transcript.md, p. 1]" in call["prompt"]
+    assert "[Source: atelier-dubois/reunion-3.transcript.md, p. 1]" in call["prompt"]
     assert QUESTION in call["prompt"]
     gen = VENTES.profile.generation
     assert call["options"] == {

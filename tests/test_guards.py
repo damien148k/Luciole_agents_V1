@@ -122,3 +122,20 @@ def test_bilan_des_gardes():
     assert GuardReport().clean
     assert not GuardReport(numbers_outside=["42"]).clean
     assert GuardReport(evasive=True).to_dict()["evasive"] is True
+
+
+def test_meme_nom_dans_deux_dossiers():
+    lot = lot_pages(
+        [
+            SourcePages("atelier-dubois/reunion-2.transcript.md", 1, 1),
+            SourcePages("cabinet-roche/reunion-2.transcript.md", 4, 4),
+        ]
+    )
+    # Le chemin désigne un seul fichier : sa page 4 n'est pas dans le lot.
+    assert pages_outside_lot("atelier-dubois/reunion-2.transcript.md, p. 4", lot) == [
+        "atelier-dubois/reunion-2.transcript.md p. 4"
+    ]
+    assert pages_outside_lot("cabinet-roche/reunion-2.transcript.md, p. 4", lot) == []
+    # Le nom seul est ambigu : comparé à tout le lot, sans choisir un dossier.
+    assert pages_outside_lot("reunion-2.transcript.md, p. 4", lot) == []
+    assert pages_outside_lot("reunion-2.transcript.md, p. 7", lot) == ["p. 7"]
