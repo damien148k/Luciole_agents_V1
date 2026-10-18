@@ -9,7 +9,15 @@ dependencies = [
     "pydantic>=2.9,<3",
     "pyyaml>=6.0.2,<7",
     "loguru>=0.7.2,<0.8",
+    "pymupdf>=1.26,<2",
+    "pymupdf4llm>=0.0.27,<2",
 ]
+
+[project.optional-dependencies]
+# Greffon de mise en page de pymupdf4llm (modèle binaire, roues x86_64 et aarch64).
+layout = ["pymupdf-layout>=1.26,<2"]
+# OCR : tire PyTorch, installé par le profil matériel (Dockerfile), jamais en CI.
+ocr = ["easyocr>=1.7.1,<2"]
 
 [dependency-groups]
 dev = [
