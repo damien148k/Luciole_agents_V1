@@ -78,7 +78,7 @@ Structure, `pyproject.toml` + `uv.lock`, CI, `DEV.ps1`, docs de cadrage, `DECISI
 **Porte :** deux fichiers de même nom coexistent ; les champs d'une réunion fictive sont extraits et validés ; aucun chunk ne dépasse la limite du tokenizer.
 
 ### Étape 3 — Embedding, index, watcher, multi-architecture (3 PR)
-Embedder BGE-M3 (dense `content` + `context`), Qdrant vecteurs nommés, OpenSearch BM25, pipeline, watcher réécrit pour passer les tests portés, images Docker `amd64` + `arm64`, `DEV.ps1 -Action smoke`.
+Embedder BGE-M3 (dense `content` + `context`), Qdrant vecteurs nommés, OpenSearch BM25, pipeline, watcher réécrit pour passer les tests portés, images Docker `amd64` + `arm64`, `DEV.ps1 -Action smoke`. Ajout après l'étape 2 : les fichiers du modèle (poids et `tokenizer.json`) sont récupérés une fois à une **révision épinglée**, rangés dans `LUCIOLE_MODELS_DIR`, et `smoke` vérifie leur présence ; l'embedding prend le `embed_text` des morceaux enfants (contexte + passage) et le pipeline se branche sur `scan(..., on_document=...)` pour ne lire chaque fichier qu'une fois.
 **Porte (3080 Ti, puis GX10 si disponible) :** ingestion d'un dossier de test, réingestion sans doublon, suppression propre, test de fumée vert.
 
 ### Étape 4 — Outils de recherche, génération, verdict, banc d'essai (3 PR)
@@ -101,7 +101,7 @@ Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.p
 
 - [x] Étape 0
 - [x] Étape 1 (2026-10-18, PR #2 à #6)
-- [ ] Étape 2
+- [x] Étape 2
 - [ ] Étape 3
 - [ ] Étape 4
 - [ ] Étape 5

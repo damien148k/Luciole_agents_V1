@@ -75,3 +75,8 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 - Les études sont des PDF portrait tournés de 90°, imprimés « deux pages côte à côte » : toute coordonnée de bloc passe par `page.rotation_matrix`, et les numéros imprimés (« 14/47 ») ne sont pas les numéros PDF.
 - Une page sans texte, sans image et sans tracé est vide, pas à OCR. Un tableau tracé fait jusqu'à ~2000 tracés, une carte 7000 et plus : ne pas baisser le seuil de 5000 sans nouvelle mesure.
 - Les seuils du parser se règlent sur des documents réels publics, jamais sur le seul corpus synthétique ; les documents réels ne rentrent pas dans le dépôt.
+
+## Leçons de l'étape 2
+
+- Les tailles de morceaux se vérifient avec le tokenizer réel, mais les tests unitaires utilisent un compteur factice : le conteneur cloud de Claude ne joint pas huggingface.co, seule la machine de Damien peut lancer les tests `integration` avec BGE-M3.
+- Une valeur de métadonnée invalide est signalée, jamais corrigée ni devinée ; un dépassement de taille lève une erreur, jamais une troncature silencieuse.
