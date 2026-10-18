@@ -1,0 +1,11 @@
+name: a5000
+title: RTX A5000 24 Go (production MRAe)
+arch: x86_64
+device: cuda
+gpu_memory_gb: 24
+llm_model: qwen2.5:14b-instruct-q4_K_M
+llm_num_ctx: 32768
+embedding_batch_size: 32
+reranker_batch_size: 32
+ocr_device: cuda
+notes: Machine de référence des campagnes V4/V5 (Beaumont Sud, Brissy).

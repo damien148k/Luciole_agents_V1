@@ -1,0 +1,35 @@
+# Boucle « analyser un dossier commercial ». Squelette de l'étape 0.
+name: ventes
+description: Reconstituer la chronologie d'un dossier, extraire les signaux par réunion, comparer aux dossiers similaires, expliquer l'issue.
+start: selectionner
+max_steps: 10
+nodes:
+  selectionner:
+    type: filter
+    description: Retrouver le dossier demandé et ses réunions dans l'ordre.
+    rules:
+      - when: "count == 0"
+        then: dossier_inconnu
+    default: signaux
+  signaux:
+    type: extract
+    description: Pour chaque réunion, extraire objections, engagements, décideurs, prochaine étape (JSON typé).
+    params: {schema: signaux_reunion, per: document}
+    default: comparables
+  comparables:
+    type: aggregate
+    description: Dossiers du même produit, gagnés et perdus, pour comparaison.
+    default: comparer
+  comparer:
+    type: compare
+    description: Mettre en regard les signaux du dossier et ceux des comparables.
+    default: expliquer
+  expliquer:
+    type: synthesize
+    description: Rédiger l'analyse citée (réunion, date) et les recommandations.
+    default: analyse
+  analyse:
+    type: terminal
+  dossier_inconnu:
+    type: terminal
+    description: Aucun dossier ne correspond ; proposer les dossiers proches.

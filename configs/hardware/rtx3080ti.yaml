@@ -1,0 +1,11 @@
+name: rtx3080ti
+title: RTX 3080 Ti 12 Go (développement, Windows)
+arch: x86_64
+device: cuda
+gpu_memory_gb: 12
+llm_model: qwen2.5:14b-instruct-q4_K_M
+llm_num_ctx: 16384
+embedding_batch_size: 16
+reranker_batch_size: 16
+ocr_device: cuda
+notes: Profil repris de INSTALL.ps1 -GpuProfile 3080ti de V5 (fenêtre 16k).

@@ -1,0 +1,14 @@
+name: gx10
+title: ASUS Ascent GX10 (GB10, 128 Go unifiés, ARM64)
+arch: aarch64
+device: cuda
+gpu_memory_gb: 96
+llm_model: qwen2.5:72b-instruct-q4_K_M
+llm_num_ctx: 32768
+embedding_batch_size: 64
+reranker_batch_size: 64
+ocr_device: cuda
+notes: >
+  Mémoire unifiée : la part laissée au GPU est indicative (nvidia-smi la
+  rapporte différemment selon le pilote). Images Docker en linux/arm64,
+  PyTorch CUDA aarch64. À valider par le test de fumée à l'étape 3.

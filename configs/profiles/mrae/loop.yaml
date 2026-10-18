@@ -1,0 +1,42 @@
+# Boucle MRAe : l'enchaînement du pipeline query2 de V5, écrit comme une
+# machine à états. Squelette de l'étape 0 : les paramètres de chaque outil
+# et la grammaire exacte des règles sont fixés à l'étape 5.
+name: mrae
+description: Analyser la remarque, chercher dans le dossier, rédiger une réponse sourcée.
+start: analyser
+max_steps: 8
+nodes:
+  analyser:
+    type: extract
+    description: Extraire objet, type d'objet, acte, aspects et motifs de la remarque (JSON typé).
+    params: {schema: analyse_remarque}
+    default: rechercher
+  rechercher:
+    type: retrieve
+    description: Une recherche hybride par question composée à partir de l'analyse.
+    default: verdict
+  verdict:
+    type: verdict
+    description: Couverture des questions par les passages retrouvés.
+    rules:
+      - when: "verdict == 'INSUFFISANT' and refinements_left > 0"
+        then: elargir
+        reason: Trop peu de passages pertinents, une passe élargie est autorisée
+      - when: "verdict == 'INSUFFISANT'"
+        then: sans_reponse
+    default: rediger
+  elargir:
+    type: retrieve
+    description: Passe élargie (plus de candidats) sur les questions non couvertes.
+    params: {mode: deep}
+    default: verdict
+  rediger:
+    type: synthesize
+    description: Rédiger la réponse à partir des blocs cités, gardes de rétention et de pages.
+    default: reponse
+  reponse:
+    type: terminal
+    description: Réponse sourcée rendue à l'utilisateur.
+  sans_reponse:
+    type: terminal
+    description: Le dossier ne permet pas de répondre ; dire ce qui manque.

@@ -1,0 +1,44 @@
+# Cas d'usage : assistant des commerciaux. Un dossier = un client × un
+# produit × un commercial, avec une suite de réunions. Squelette de
+# l'étape 0 ; les champs seront affinés avec Damien à l'étape 2.
+name: ventes
+title: Assistant des commerciaux
+description: >
+  Analyser des suites de réunions client (réunion 1, 2, 3…) pour comprendre
+  pourquoi un dossier a abouti ou non à une vente, par commercial et par
+  produit, et préparer la réunion suivante.
+entities:
+  dossier:
+    client:
+      type: string
+      required: true
+    produit:
+      type: string
+      required: true
+    commercial:
+      type: string
+      required: true
+    issue:
+      type: enum
+      values: [en_cours, gagne, perdu, abandonne]
+      required: true
+      description: État du dossier à ce jour
+  document:
+    numero_reunion:
+      type: integer
+      required: true
+      description: Rang de la réunion dans le dossier (1, 2, 3…)
+    date:
+      type: date
+      required: true
+    type_document:
+      type: enum
+      values: [compte_rendu, transcription, email, proposition, autre]
+chunking:
+  size_tokens: 384
+  overlap_pct: 10
+retrieval:
+  dense_top_n: 50
+  bm25_top_n: 50
+  rrf_k: 60
+  rerank_top_k: 10
