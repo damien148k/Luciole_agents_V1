@@ -77,10 +77,34 @@ class EntitySchema(StrictModel):
 
 
 class ChunkingSpec(StrictModel):
-    """Taille et recouvrement en **tokens** du modèle d'embedding."""
+    """Découpage, en **tokens** du modèle d'embedding (jamais en caractères).
+
+    Un morceau « enfant » (``size_tokens``) est ce que l'on cherche et que
+    l'on cite ; son « parent » (``parent_size_tokens``) est la section qui
+    l'entoure, ce que l'on donne à lire au LLM. ``max_tokens`` est la limite
+    haute absolue, préfixe de contexte compris : aucun morceau ne la dépasse.
+    """
 
     size_tokens: int = Field(512, ge=64, le=4096)
     overlap_pct: int = Field(15, ge=0, le=50)
+    parent_size_tokens: int = Field(1536, ge=64, le=8192)
+    max_tokens: int = Field(2500, ge=64, le=8192)
+    #: Tokenizer du modèle d'embedding : nom Hugging Face (lu dans le cache
+    #: local, jamais téléchargé) ou chemin d'un ``tokenizer.json``.
+    tokenizer: str = Field("BAAI/bge-m3", min_length=1)
+
+    @model_validator(mode="after")
+    def _ordered(self) -> ChunkingSpec:
+        if not self.size_tokens <= self.parent_size_tokens <= self.max_tokens:
+            raise ValueError(
+                "chunking : size_tokens <= parent_size_tokens <= max_tokens attendu "
+                f"({self.size_tokens}, {self.parent_size_tokens}, {self.max_tokens})"
+            )
+        return self
+
+    @property
+    def overlap_tokens(self) -> int:
+        return self.size_tokens * self.overlap_pct // 100
 
 
 class RetrievalSpec(StrictModel):

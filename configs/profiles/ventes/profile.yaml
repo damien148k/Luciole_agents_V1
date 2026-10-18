@@ -43,9 +43,15 @@ ingestion:
   # Les réunions se rangent par numéro : pour un champ de dossier qui change
   # au fil des réunions (l'issue), la dernière réunion fait foi.
   document_order: numero_reunion
+# Tailles en tokens du tokenizer BGE-M3 (lu dans le cache local, jamais
+# téléchargé). Enfant = passage cherché et cité ; parent = section qui
+# l'entoure, donnée à lire au LLM ; max_tokens = limite absolue, contexte compris.
 chunking:
   size_tokens: 384
   overlap_pct: 10
+  parent_size_tokens: 1536
+  max_tokens: 2500
+  tokenizer: BAAI/bge-m3
 retrieval:
   dense_top_n: 50
   bm25_top_n: 50

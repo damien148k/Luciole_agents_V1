@@ -28,7 +28,10 @@ Réglages mesurés sur de vraies études d'impact (A3 paysage, 202 pages) :
 - les pages A3 « deux pages côte à côte » sont lues colonne par colonne ;
 - le seuil « vectoriel complexe » est à 5000 tracés : jusqu'à ~2000 tracés
   ce sont des tableaux que pymupdf4llm rend très bien (< 3 s) ; au-delà de
-  7000 ce sont des cartes, sans tableau, où le texte natif suffit.
+  7000 ce sont des cartes, sans tableau, où le texte natif suffit ;
+- les numéros de page **imprimés** (« 7/47 » en pied de chaque moitié d'une
+  double page, « 12 » en début de pied d'un tome) sont relevés dans les
+  bandes de marge et rangés dans ``PageInfo.labels`` pour les citations.
 """
 
 from __future__ import annotations
@@ -50,6 +53,7 @@ from luciole.core.document import (
     NodeBuilder,
     NodeType,
     PageInfo,
+    PageLabel,
     ParsedDocument,
 )
 from luciole.ingestion.base import Parser
@@ -62,6 +66,12 @@ _DASHES_RE = re.compile(r"[‐-―−]")
 _MARKUP_RE = re.compile(r"[*`_]+")
 _LETTER_RE = re.compile(r"[^\W\d_]")
 _PAGE_NUMBER_RE = re.compile(r"^(page|p\.)?\s*#\s*([/-]|sur|of)?\s*#?$")
+# Numéro imprimé seul sur sa ligne de marge : « 7/47 », « Page 3 sur 12 », « 12 ».
+# Pas de « / » juste avant : « 01/06/2021 » n'est pas la page 6 sur 2021.
+_LABEL_FRACTION_RE = re.compile(
+    r"(?:^|(?<=[\s|]))(?:page\s*|p\.\s*)?(\d{1,4})\s*(?:/|sur|of)\s*(\d{1,4})$", re.IGNORECASE
+)
+_LABEL_BARE_RE = re.compile(r"^(?:page\s*|p\.\s*)?(\d{1,4})$", re.IGNORECASE)
 _BLANK_NOTE = "page vide : ni texte, ni image, ni tracé"
 _MAX_MARGIN_LINE = 160  # au-delà, une ligne de bande n'est plus un en-tête mais du texte
 
@@ -112,6 +122,7 @@ class _Block:
     confidence: float | None = None
     attributes: dict = field(default_factory=dict)
     column: int = 0
+    level: int | None = None
 
     def sort_key(self) -> tuple[int, float, float]:
         if self.bbox is None:
@@ -176,21 +187,34 @@ class PdfParser(Parser):
     def _parse_doc(self, doc: pymupdf.Document, path: Path) -> ParsedDocument:
         natives = [page.get_text("text") for page in doc]
         repeated = self._repeated_lines(doc)
+        printed = self._printed_labels(doc)
         builder = NodeBuilder()
         pages: list[PageInfo] = []
         methods: Counter[str] = Counter()
+        has_title = False
 
         for index, page in enumerate(doc):
             number = index + 1
             native = natives[index]
             info, blocks = self._parse_page(doc, page, number, native, repeated)
+            info.width, info.height = page.rect.width, page.rect.height
+            info.labels = printed.get(number, [])
+            if len(info.labels) == 2:
+                self._mark_sides(page, blocks)
             pages.append(info)
             methods[info.method or "none"] += 1
             for blk in sorted(blocks, key=_Block.sort_key):
+                kind = blk.node_type
+                if kind == "title":
+                    # pymupdf4llm est appelé page par page : seul le premier
+                    # titre de niveau 1 du document en est le titre.
+                    kind = "heading" if has_title else "title"
+                    has_title = True
                 builder.add(
-                    blk.node_type,
+                    kind,
                     blk.text,
                     page=number,
+                    level=blk.level,
                     method=blk.method,
                     bbox=blk.bbox,
                     confidence=blk.confidence,
@@ -219,6 +243,7 @@ class PdfParser(Parser):
                 "pages_without_text": methods.get("none", 0),
                 "pages_blank": blank,
                 "pages_need_ocr": needs_ocr,
+                "pages_with_printed_label": len(printed),
             },
             pages=pages,
             nodes=builder.nodes(),
@@ -261,6 +286,97 @@ class PdfParser(Parser):
             self.repeated_line_min_pages, math.ceil(self.repeated_line_ratio * len(doc))
         )
         return {line: kind for (line, kind), n in counts.items() if n >= threshold}
+
+    def _printed_labels(self, doc: pymupdf.Document) -> dict[int, list[PageLabel]]:
+        """Numéros de page imprimés, par numéro de page PDF.
+
+        Une ligne de la bande haute ou basse qui n'est qu'un numéro (« 7/47 »,
+        « 12 ») est candidate. Une forme (fraction ou nombre seul, en haut ou
+        en bas) n'est retenue que si elle revient sur assez de pages (même
+        seuil que les en-têtes) avec des valeurs qui changent : une cellule
+        « 12 » isolée ou un « 2021 » répété ne sont pas des numéros de page.
+        Au plus un numéro par moitié de page, le plus proche du bord."""
+        if len(doc) < self.repeated_line_min_pages:
+            return {}
+        # (page, forme, bande) -> candidats (moitié, distance au bord, numéro, total)
+        found: dict[tuple[int, str, str], list[tuple[str, float, str, int | None]]] = {}
+        for page in doc:
+            top_limit, bottom_limit = self._margin_bands(page)
+            width, height = page.rect.width, page.rect.height
+            for rect, text in _text_blocks(page):
+                if rect.y1 <= top_limit:
+                    band, edge = "top", rect.y0
+                elif rect.y0 >= bottom_limit:
+                    band, edge = "bottom", height - rect.y1
+                else:
+                    continue
+                for raw in text.splitlines():
+                    line = _MARKUP_RE.sub("", raw).strip()
+                    if m := _LABEL_FRACTION_RE.search(line):
+                        number, total = int(m.group(1)), int(m.group(2))
+                        if not 1 <= number <= total:
+                            continue
+                        form = "fraction"
+                    elif m := _LABEL_BARE_RE.match(line):
+                        number, total, form = int(m.group(1)), None, "bare"
+                        if number == 0:
+                            continue
+                    else:
+                        continue
+                    half = "left" if (rect.x0 + rect.x1) / 2 < width / 2 else "right"
+                    found.setdefault((page.number + 1, form, band), []).append(
+                        (half, edge, str(number), total)
+                    )
+        threshold = max(
+            self.repeated_line_min_pages, math.ceil(self.repeated_line_ratio * len(doc))
+        )
+        accepted: set[tuple[str, str]] = set()
+        for form, band in {(f, b) for _, f, b in found}:
+            hits = [
+                c for (_, f, b), cands in found.items() if (f, b) == (form, band) for c in cands
+            ]
+            pages = {p for (p, f, b) in found if (f, b) == (form, band)}
+            if len(pages) >= threshold and len({c[2] for c in hits}) >= 0.8 * len(hits):
+                accepted.add((form, band))
+        out: dict[int, list[PageLabel]] = {}
+        for (number, form, band), cands in sorted(found.items()):
+            if (form, band) not in accepted or number in out:
+                continue
+            best: dict[str, tuple[float, str, int | None]] = {}
+            for half, edge, label, total in cands:
+                if half not in best or edge < best[half][0]:
+                    best[half] = (edge, label, total)
+            two = len(best) == 2
+            out[number] = [
+                PageLabel(label=label, total=total, side=half if two else "page")
+                for half, (_, label, total) in sorted(best.items())
+            ]
+        return out
+
+    @staticmethod
+    def _mark_sides(page: pymupdf.Page, blocks: list[_Block]) -> None:
+        """Double page : note de quelle moitié vient chaque bloc sans boîte (les
+        blocs Markdown de pymupdf4llm n'en ont pas), en retrouvant son début
+        dans un bloc de texte natif. Sert à citer « 7/47 » plutôt que
+        « 7/47, 8/47 ». Un bloc introuvable (tableau recomposé…) reste sans côté."""
+        middle = page.rect.width / 2
+        natives = [
+            (_SPACES_RE.sub(" ", _MARKUP_RE.sub("", text)).strip().lower(), rect)
+            for rect, text in _text_blocks(page)
+        ]
+        for blk in blocks:
+            if blk.bbox is not None:
+                continue
+            probe = _SPACES_RE.sub(" ", _MARKUP_RE.sub("", blk.text)).strip().lower()[:40]
+            if len(probe) < 8:
+                continue
+            sides = {
+                "left" if (rect.x0 + rect.x1) / 2 < middle else "right"
+                for text, rect in natives
+                if probe in text
+            }
+            if len(sides) == 1:
+                blk.attributes["side"] = sides.pop()
 
     def _parse_page(
         self,
@@ -338,6 +454,7 @@ class PdfParser(Parser):
                     text=n.text,
                     method="markdown",
                     attributes=dict(n.attributes),
+                    level=n.level if n.node_type in ("title", "heading") else None,
                 )
             )
         return info, blocks

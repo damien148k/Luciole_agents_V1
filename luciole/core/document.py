@@ -101,12 +101,34 @@ class DocumentNode(BaseModel):
         return self
 
 
+class PageLabel(BaseModel):
+    """Numéro de page **imprimé** sur la page (« 14/47 »), qui n'est pas le
+    numéro PDF : une étude imprimée « deux pages côte à côte » porte deux
+    numéros par page PDF, un par moitié. Les citations parlent ce langage."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    label: str = Field(min_length=1, description="Numéro imprimé, ex. « 14 »")
+    total: int | None = Field(default=None, ge=1, description="« sur 47 », s'il est imprimé")
+    side: Literal["page", "left", "right"] = Field(
+        "page", description="Moitié de la page affichée qu'il numérote"
+    )
+
+    def display(self) -> str:
+        return f"{self.label}/{self.total}" if self.total else self.label
+
+
 class PageInfo(BaseModel):
     """Ce que l'on sait d'une page : méthode retenue, qualité, replis."""
 
     model_config = ConfigDict(extra="forbid")
 
     number: int = Field(ge=1)
+    width: float | None = Field(default=None, gt=0, description="Largeur affichée, en points")
+    height: float | None = Field(default=None, gt=0)
+    labels: list[PageLabel] = Field(
+        default_factory=list, description="Numéros imprimés, de gauche à droite"
+    )
     method: ExtractionMethod | None = Field(
         default=None, description="None : aucune méthode n'a produit de texte"
     )
@@ -156,6 +178,33 @@ class ParsedDocument(BaseModel):
     @property
     def page_count(self) -> int:
         return len(self.pages)
+
+    def page(self, number: int) -> PageInfo | None:
+        for p in self.pages:
+            if p.number == number:
+                return p
+        return None
+
+    def labels_for(self, node: DocumentNode) -> list[PageLabel]:
+        """Numéros imprimés qui couvrent ce nœud : ceux de la moitié de page où
+        il se trouve (``attributes["side"]`` ou sa boîte), sinon tous ceux de
+        ses pages."""
+        if node.page_start is None:
+            return []
+        out: list[PageLabel] = []
+        for number in range(node.page_start, node.page_end + 1):
+            info = self.page(number)
+            if info is None or not info.labels:
+                continue
+            labels = info.labels
+            side = node.attributes.get("side")
+            if side is None and node.bbox is not None and info.width:
+                center = (node.bbox.x0 + node.bbox.x1) / 2
+                side = "left" if center < info.width / 2 else "right"
+            if len(labels) > 1 and side in ("left", "right"):
+                labels = [lb for lb in labels if lb.side == side] or labels
+            out.extend(lb for lb in labels if lb not in out)
+        return out
 
     def nodes_on_page(self, number: int) -> list[DocumentNode]:
         return [
