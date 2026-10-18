@@ -1,7 +1,8 @@
 """Porte de l'étape 3 contre de **vrais** serveurs Qdrant et OpenSearch
 (``docker/compose.services.yaml``, lancés par ``DEV.ps1 -Action
-test-integration``). L'embedder est encore le faux : le vrai BGE-M3 arrive
-avec la PR 3b. Les index de test portent un nom à part et sont supprimés.
+test-integration``), avec le faux embedder ; la même porte avec le vrai
+BGE-M3 est dans ``test_bge_m3.py``. Les index de test portent un nom à part
+et sont supprimés.
 """
 
 import shutil

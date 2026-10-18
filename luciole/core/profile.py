@@ -107,6 +107,13 @@ class ChunkingSpec(StrictModel):
         return self.size_tokens * self.overlap_pct // 100
 
 
+class EmbeddingSpec(StrictModel):
+    """Modèle d'embedding du cas d'usage : un nom de ``configs/models.yaml``
+    (dépôt et révision épinglée y sont notés)."""
+
+    model: str = Field("bge-m3", min_length=1)
+
+
 class RetrievalSpec(StrictModel):
     dense_top_n: int = Field(75, ge=1)
     bm25_top_n: int = Field(75, ge=1)
@@ -156,6 +163,7 @@ class UseCaseProfile(StrictModel):
     entities: EntitySchema = Field(default_factory=EntitySchema)
     ingestion: IngestionSpec = Field(default_factory=IngestionSpec)
     chunking: ChunkingSpec = Field(default_factory=ChunkingSpec)
+    embedding: EmbeddingSpec = Field(default_factory=EmbeddingSpec)
     retrieval: RetrievalSpec = Field(default_factory=RetrievalSpec)
 
     @model_validator(mode="after")

@@ -15,11 +15,18 @@ Un passage (``run``) :
 L'index est écrit **avant** le magasin : si le passage s'arrête au milieu,
 le magasin ne note pas le document comme indexé et le passage suivant le
 refait. Les documents inchangés ne sont ni redécoupés ni réembarqués.
+
+En ligne de commande (services de ``docker/compose.services.yaml`` lancés) :
+
+    python -m luciole.index.pipeline <racine> --profile ventes --hardware cpu
 """
 
 from __future__ import annotations
 
+import argparse
+import sys
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -33,7 +40,7 @@ from luciole.index.embedder import Embedder, index_key
 from luciole.index.opensearch import OpenSearchIndex
 from luciole.index.qdrant import QdrantIndex
 from luciole.ingestion.chunking import Chunker
-from luciole.ingestion.dossiers import Registry, scan
+from luciole.ingestion.dossiers import Registry, SkippedFile, scan
 from luciole.store.sqlite import MetadataStore, SyncReport
 
 
@@ -43,6 +50,7 @@ class PipelineReport:
     indexed: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)  # déjà indexés avec la même clé
     deleted: list[str] = field(default_factory=list)  # retirés de l'index
+    ignored: list[SkippedFile] = field(default_factory=list)  # illisibles, hors format
     children: int = 0
     parents: int = 0
     seconds: float = 0.0
@@ -109,6 +117,7 @@ class IngestionPipeline:
             indexed=sorted(pending),
             skipped=sorted(skipped),
             deleted=deleted,
+            ignored=list(result.skipped),
             children=sum(1 for cs in pending.values() for c in cs if c.kind == "child"),
             parents=sum(1 for cs in pending.values() for c in cs if c.kind == "parent"),
             seconds=time.perf_counter() - start,
@@ -148,3 +157,99 @@ class IngestionPipeline:
                     )
             out.extend(batch)
         return out
+
+
+# ---------------------------------------------------------------------------
+# Ligne de commande : indexer une racine de dossiers
+# ---------------------------------------------------------------------------
+def _hardware(name: str | None, root: Path):
+    from luciole.core.hardware import (
+        detect_arch,
+        detect_gpu_memory_gb,
+        list_hardware_profiles,
+        suggest_profile,
+    )
+
+    profiles = list_hardware_profiles(root)
+    if name is None:
+        name = suggest_profile(profiles, detect_arch(), detect_gpu_memory_gb())
+        if name is None:
+            raise SystemExit("aucun profil matériel ne convient : donner --hardware")
+    if name not in profiles:
+        raise SystemExit(f"profil matériel « {name} » inconnu ({', '.join(profiles)})")
+    return profiles[name]
+
+
+def main(
+    argv: list[str] | None = None,
+    *,
+    embedder_factory: Callable[..., Embedder] | None = None,
+    qdrant=None,
+    opensearch=None,
+) -> int:
+    """``embedder_factory(spec, hardware)`` et les clients remplacent le vrai
+    modèle et les vrais services dans les tests."""
+    from luciole.core.model_files import load_manifest
+    from luciole.core.profile import load_profile
+    from luciole.index.clients import opensearch_client, qdrant_client
+    from luciole.index.embedder import index_name
+    from luciole.ingestion.registry import default_registry
+    from luciole.ingestion.tokenizer import load_tokenizer
+
+    parser = argparse.ArgumentParser(
+        prog="python -m luciole.index.pipeline",
+        description="Indexe une racine de dossiers (Qdrant + OpenSearch) ; "
+        "les fichiers inchangés ne sont pas recalculés.",
+    )
+    parser.add_argument("root", help="dossier racine (un sous-répertoire par dossier)")
+    parser.add_argument("--profile", required=True, help="nom du cas d'usage (mrae, ventes…)")
+    parser.add_argument("--profiles-dir", default="configs/profiles")
+    parser.add_argument("--hardware", help="profil matériel (défaut : celui de cette machine)")
+    parser.add_argument("--hardware-dir", default="configs/hardware")
+    parser.add_argument("--models", default="configs/models.yaml", help="liste des modèles")
+    parser.add_argument("--store", help="magasin SQLite (défaut : data/<profil>.db)")
+    parser.add_argument(
+        "--no-opensearch", action="store_true", help="recherche par le sens seulement"
+    )
+    args = parser.parse_args(argv)
+
+    profile = load_profile(Path(args.profiles_dir) / args.profile).profile
+    hardware = _hardware(args.hardware, Path(args.hardware_dir))
+    spec = load_manifest(args.models).get(profile.embedding.model)
+    if embedder_factory is None:
+        from luciole.index.local_embedder import LocalEmbedder
+
+        embedder_factory = LocalEmbedder
+    embedder = embedder_factory(spec, hardware)
+    chunker = Chunker(profile.chunking, load_tokenizer(profile.chunking.tokenizer))
+    name = index_name(profile.name, embedder)
+    vectors = QdrantIndex(qdrant or qdrant_client(), name, embedder.dimension)
+    lexical = (
+        None if args.no_opensearch else OpenSearchIndex(opensearch or opensearch_client(), name)
+    )
+    store_path = Path(args.store or Path("data") / f"{profile.name}.db")
+    store_path.parent.mkdir(parents=True, exist_ok=True)
+    print(
+        f"Profil {profile.name}, machine {hardware.name} ({getattr(embedder, 'device', '?')}), "
+        f"modèle {embedder.name}, index {name}, magasin {store_path}"
+    )
+    with MetadataStore(store_path, profile) as store:
+        pipeline = IngestionPipeline(
+            profile,
+            store,
+            default_registry(),
+            chunker,
+            embedder,
+            vectors,
+            lexical,
+            batch_size=hardware.embedding_batch_size,
+        )
+        report = pipeline.run(args.root)
+    print(report.summary())
+    for skipped in report.ignored:
+        print(f"  ignoré : {skipped.relative_path} ({skipped.reason})")
+    return 0
+
+
+if __name__ == "__main__":  # pragma: no cover
+    sys.exit(main())

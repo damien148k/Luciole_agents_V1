@@ -10,12 +10,20 @@
   .\DEV.ps1 -Action lint              Vérification du code avec ruff.
   .\DEV.ps1 -Action test-integration  Démarre Qdrant et OpenSearch (Docker), puis les tests `integration`.
   .\DEV.ps1 -Action services-stop     Arrête Qdrant et OpenSearch (les données restent).
+  .\DEV.ps1 -Action models            Récupère une fois les modèles (révision épinglée) puis les vérifie.
+  .\DEV.ps1 -Action index -Root <dossier> -UseCase ventes
+                                      Indexe une racine de dossiers (Qdrant + OpenSearch démarrés).
   .\DEV.ps1 -Action smoke             Test de fumée du matériel (GPU, modèles, conteneurs).
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "smoke")]
-    [string]$Action
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "smoke")]
+    [string]$Action,
+    # Pour -Action index : la racine des dossiers et le cas d'usage.
+    [string]$Root,
+    [string]$UseCase,
+    # Pour -Action index : profil matériel (défaut : celui de cette machine).
+    [string]$Hardware
 )
 
 $ErrorActionPreference = "Stop"
@@ -38,7 +46,8 @@ switch ($Action) {
         Ensure-Uv
         Write-Step "Installation de Python 3.12 et des dépendances verrouillées (uv.lock)"
         uv python install 3.12
-        uv sync --frozen
+        # Extra « embed » : PyTorch et sentence-transformers pour le vrai BGE-M3.
+        uv sync --frozen --extra embed
         Write-OK "Environnement prêt. Lancer ensuite : .\DEV.ps1 -Action test"
     }
     "test" {
@@ -58,11 +67,26 @@ switch ($Action) {
         if ($LASTEXITCODE -ne 0) { throw "Docker : services non démarrés (Docker Desktop est-il lancé ?)" }
         Write-OK "Services prêts"
         Write-Step "Tests d'intégration (Docker + GPU)"
-        uv run pytest -m integration
+        uv run --extra embed pytest -m integration
     }
     "services-stop" {
         Write-Step "Arrêt de Qdrant et OpenSearch"
         docker compose -f docker/compose.services.yaml down
+    }
+    "models" {
+        Ensure-Uv
+        Write-Step "Modèles locaux (configs/models.yaml) : récupération puis vérification"
+        uv run python -m luciole.core.model_files fetch
+        if ($LASTEXITCODE -ne 0) { throw "Modèles incomplets : voir les messages ci-dessus" }
+        Write-OK "Modèles prêts (dossier models\ ou LUCIOLE_MODELS_DIR)"
+    }
+    "index" {
+        Ensure-Uv
+        if (-not $Root -or -not $UseCase) { throw "Donner -Root <dossier> et -UseCase <cas d'usage>" }
+        Write-Step "Indexation de $Root (cas d'usage $UseCase)"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        uv run --extra embed python -m luciole.index.pipeline $Root --profile $UseCase @extra
     }
     "smoke" {
         Ensure-Uv

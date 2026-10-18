@@ -26,10 +26,12 @@ Plateforme souveraine et hors ligne de **boucles agentiques par cas d'usage**, d
 .\DEV.ps1 -Action test             # tests unitaires (sans GPU ni Docker)
 .\DEV.ps1 -Action lint             # ruff
 .\DEV.ps1 -Action test-integration # tests Docker + GPU (machines de Damien)
+.\DEV.ps1 -Action models           # récupérer une fois les modèles (révision épinglée)
+.\DEV.ps1 -Action index -Root <dossier> -UseCase ventes  # indexer une racine de dossiers
 .\DEV.ps1 -Action smoke            # test de fumée du matériel (GPU, modèles, conteneurs)
 ```
 
-Équivalents : `uv run pytest`, `uv run pytest -m integration`, `uv run ruff check .`.
+Équivalents : `uv run pytest`, `uv run --extra embed pytest -m integration`, `uv run ruff check .`.
 
 ## Structure
 
