@@ -58,6 +58,7 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 - Un module = une responsabilité ; les clients externes (Qdrant, OpenSearch, Ollama, modèles) sont injectables pour que les tests unitaires tournent sans eux.
 - Les tests unitaires ne téléchargent rien et durent quelques secondes. Ce qui a besoin de Docker ou d'un GPU porte `@pytest.mark.integration`.
 - Une PR = un sujet. Titre en anglais, description en français : « Avant / Après / Comment vérifier ».
+- **Une seule PR ouverte à la fois, toujours sur `main`.** Pas de PR empilées : fusionnées par le bouton vert, elles atterrissent dans la branche intermédiaire, pas dans `main` (vécu à l'étape 1).
 - Jamais de secret, de chemin personnel, de nom de client réel ni de données clients dans le code ou les fixtures. Les dossiers commerciaux de test sont fictifs.
 
 ## Leçons de V5 à ne pas oublier
@@ -68,3 +69,9 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 - Les poids sparse et ColBERT de BGE-M3 ne servent que si le code les charge ; ne pas les embarquer sans usage.
 - pymupdf4llm peut perdre silencieusement le texte des pages A3 denses : garder une comparaison de rendement par page.
 - La détection « PDF vectoriel complexe » et l'OCR étendu doivent se décider page par page, pas sur la moyenne du document.
+
+## Leçons des études d'impact réelles (étape 1)
+
+- Les études sont des PDF portrait tournés de 90°, imprimés « deux pages côte à côte » : toute coordonnée de bloc passe par `page.rotation_matrix`, et les numéros imprimés (« 14/47 ») ne sont pas les numéros PDF.
+- Une page sans texte, sans image et sans tracé est vide, pas à OCR. Un tableau tracé fait jusqu'à ~2000 tracés, une carte 7000 et plus : ne pas baisser le seuil de 5000 sans nouvelle mesure.
+- Les seuils du parser se règlent sur des documents réels publics, jamais sur le seul corpus synthétique ; les documents réels ne rentrent pas dans le dépôt.
