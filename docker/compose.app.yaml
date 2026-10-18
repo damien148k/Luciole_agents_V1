@@ -1,0 +1,30 @@
+# Application Luciole dans Docker, avec le GPU NVIDIA, à côté des services
+# d'index. S'emploie avec compose.services.yaml :
+#
+#   docker compose -f docker/compose.services.yaml -f docker/compose.app.yaml build luciole
+#   docker compose -f docker/compose.services.yaml -f docker/compose.app.yaml run --rm luciole
+#
+# La commande par défaut est le test de fumée. Les modèles (models/, lecture
+# seule) et les données (data/) de la machine sont montés dans le conteneur.
+services:
+  luciole:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    # Étiquette locale à la version de l'application, jamais « latest ».
+    image: luciole:1.0.0a0
+    depends_on:
+      qdrant:
+        condition: service_healthy
+      opensearch:
+        condition: service_healthy
+    volumes:
+      - ../models:/models:ro
+      - ../data:/data
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu, utility]

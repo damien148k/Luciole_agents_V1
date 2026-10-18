@@ -15,7 +15,8 @@
                                       Indexe une racine de dossiers (Qdrant + OpenSearch démarrés).
   .\DEV.ps1 -Action watch -Root <dossier> -UseCase ventes
                                       Surveille la racine et garde l'index à jour (Ctrl+C pour arrêter).
-  .\DEV.ps1 -Action smoke             Test de fumée du matériel (GPU, modèles, conteneurs).
+  .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
+                                      PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
 param(
     [Parameter(Mandatory = $true)]
@@ -24,7 +25,7 @@ param(
     # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
     [string]$UseCase,
-    # Pour -Action index et watch : profil matériel (défaut : celui de cette machine).
+    # Pour -Action index, watch et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
 
@@ -99,8 +100,15 @@ switch ($Action) {
         uv run --extra embed python -m luciole.index.watcher $Root --profile $UseCase @extra
     }
     "smoke" {
-        Ensure-Uv
-        Write-Step "Test de fumée du matériel"
-        uv run python -m luciole.core.hardware
+        $compose = @("-f", "docker/compose.services.yaml", "-f", "docker/compose.app.yaml")
+        Write-Step "Construction de l'image luciole (la première fois : environ 6 Go, PyTorch CUDA)"
+        docker compose @compose build luciole
+        if ($LASTEXITCODE -ne 0) { throw "Image non construite (Docker Desktop est-il lancé ?)" }
+        Write-Step "Test de fumée dans l'image, avec le GPU"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        docker compose @compose run --rm luciole python -m luciole.smoke @extra
+        if ($LASTEXITCODE -ne 0) { throw "Test de fumée en échec : voir les lignes [ÉCHEC] ci-dessus" }
+        Write-OK "Test de fumée vert"
     }
 }

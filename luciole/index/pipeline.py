@@ -28,6 +28,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import sys
 import time
 from collections.abc import Callable
@@ -209,7 +210,9 @@ def parser(prog: str, description: str) -> argparse.ArgumentParser:
     cli.add_argument("--hardware", help="profil matériel (défaut : celui de cette machine)")
     cli.add_argument("--hardware-dir", default="configs/hardware")
     cli.add_argument("--models", default="configs/models.yaml", help="liste des modèles")
-    cli.add_argument("--store", help="magasin SQLite (défaut : data/<profil>.db)")
+    cli.add_argument(
+        "--store", help="magasin SQLite (défaut : $LUCIOLE_DATA_DIR ou data/, puis <profil>.db)"
+    )
     cli.add_argument("--no-opensearch", action="store_true", help="recherche par le sens seulement")
     return cli
 
@@ -259,7 +262,8 @@ def build(
     lexical = (
         None if args.no_opensearch else OpenSearchIndex(opensearch or opensearch_client(), name)
     )
-    store_path = Path(args.store or Path("data") / f"{profile.name}.db")
+    data_dir = Path(os.environ.get("LUCIOLE_DATA_DIR") or "data")
+    store_path = Path(args.store or data_dir / f"{profile.name}.db")
     store_path.parent.mkdir(parents=True, exist_ok=True)
     print(
         f"Profil {profile.name}, machine {hardware.name} ({getattr(embedder, 'device', '?')}), "

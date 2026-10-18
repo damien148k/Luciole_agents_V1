@@ -8,10 +8,9 @@ jamais dans une constante. Le même code tourne sur :
 - RTX A5000 (24 Go, x86_64) : production MRAe ;
 - ASUS Ascent GX10 (GB10, 128 Go unifiés, **aarch64**) : production, gros modèles.
 
-``python -m luciole.core.hardware`` est le test de fumée : il décrit la
-machine courante, propose un profil et vérifie ce qui peut l'être sans
-Docker (architecture, GPU visible). Les vérifications des conteneurs et des
-modèles s'ajoutent à l'étape 3.
+``python -m luciole.core.hardware`` décrit la machine courante et propose
+un profil ; le test de fumée complet (modèles, PyTorch, embedding,
+services) est ``python -m luciole.smoke``.
 """
 
 from __future__ import annotations
