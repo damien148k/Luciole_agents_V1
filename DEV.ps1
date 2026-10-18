@@ -77,7 +77,8 @@ switch ($Action) {
         if ($LASTEXITCODE -ne 0) { throw "Docker : services non démarrés (Docker Desktop est-il lancé ?)" }
         Write-OK "Services prêts"
         Write-Step "Tests d'intégration (Docker + GPU)"
-        uv run --extra embed pytest -m integration
+        # -rP : affiche aussi ce que les tests réussis impriment (scores, réponse du LLM).
+        uv run --extra embed pytest -m integration -rP
     }
     "services-stop" {
         Write-Step "Arrêt de Qdrant et OpenSearch"
