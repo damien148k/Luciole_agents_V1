@@ -94,7 +94,7 @@ Chat par cas d'usage, admin (config, watcher, traces), **éditeur graphique de b
 **Porte :** test manuel par Damien ; un profil créé dans l'éditeur change le comportement à la requête suivante.
 
 ### Étape 7 — Packaging et hors-ligne, trois machines (2 PR)
-Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.ps1` repris avec les profils matériels, manifeste du package.
+Construction de l'image arm64 et test de fumée sur le GX10 (reportés de l'étape 3). Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.ps1` repris avec les profils matériels, manifeste du package.
 **Porte :** installation hors-ligne complète sur l'A5000 et le GX10.
 
 ## 7. Avancement
@@ -102,7 +102,7 @@ Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.p
 - [x] Étape 0
 - [x] Étape 1 (2026-10-18, PR #2 à #6)
 - [x] Étape 2
-- [ ] Étape 3
+- [x] Étape 3 (2026-10-18, PR #11 à #16, 3080 Ti ; arm64 à vérifier sur le GX10)
 - [ ] Étape 4
 - [ ] Étape 5
 - [ ] Étape 6
