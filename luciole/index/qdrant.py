@@ -24,6 +24,10 @@ from luciole.core.chunk import Chunk
 
 VECTORS = ("content", "context")
 _KEYWORD_FIELDS = ("document_id", "dossier_id", "chunk_id", "parent_id", "doc_type")
+# Points par requête d'écriture. Qdrant refuse un corps JSON de plus de 32 Mo :
+# le 2026-10-18, un tome de 396 pages envoyé d'un bloc pesait 56 Mo. Un point
+# (deux vecteurs de 1024 nombres et son texte) pèse environ 50 ko en JSON.
+SEND_SIZE = 128
 
 
 def point_id(chunk_id: str) -> str:
@@ -39,10 +43,20 @@ class Hit:
 
 
 class QdrantIndex:
-    def __init__(self, client: QdrantClient, collection: str, dimension: int) -> None:
+    def __init__(
+        self,
+        client: QdrantClient,
+        collection: str,
+        dimension: int,
+        *,
+        send_size: int = SEND_SIZE,
+    ) -> None:
+        if send_size < 1:
+            raise ValueError(f"send_size doit valoir au moins 1, pas {send_size}")
         self.client = client
         self.collection = collection
         self.dimension = dimension
+        self.send_size = send_size
 
     def ensure(self) -> None:
         """Crée la collection si besoin ; refuse une collection de forme différente."""
@@ -95,7 +109,8 @@ class QdrantIndex:
         vectors: dict[str, Sequence[Sequence[float]]],
     ) -> None:
         """Supprime les points du document puis écrit les nouveaux : réindexer
-        deux fois le même document ne crée pas de doublon."""
+        deux fois le même document ne crée pas de doublon. Les points partent
+        par paquets de ``send_size`` pour rester sous la limite de Qdrant."""
         for name in VECTORS:
             if len(vectors[name]) != len(chunks):
                 raise ValueError(f"vecteurs « {name} » : {len(vectors[name])} pour {len(chunks)}")
@@ -110,7 +125,9 @@ class QdrantIndex:
             )
             for i, c in enumerate(chunks)
         ]
-        self.client.upsert(self.collection, points=points, wait=True)
+        for start in range(0, len(points), self.send_size):
+            batch = points[start : start + self.send_size]
+            self.client.upsert(self.collection, points=batch, wait=True)
 
     def count(self, document_id: str | None = None) -> int:
         flt = self._document_filter(document_id) if document_id else None
