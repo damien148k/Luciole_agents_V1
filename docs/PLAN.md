@@ -99,7 +99,7 @@ Images épinglées par digest, `INSTALL.ps1` / `PREPARE_OFFLINE.ps1` / `MANAGE.p
 
 ## 7. Avancement
 
-- [ ] Étape 0
+- [x] Étape 0
 - [ ] Étape 1
 - [ ] Étape 2
 - [ ] Étape 3

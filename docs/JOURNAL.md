@@ -6,4 +6,5 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
 
 - Dépôt créé par Damien, PR d'étape 0 ouverte par Claude.
 - Porte de passage : `uv run pytest` vert dans GitHub Actions et dans PowerShell sur la 3080 Ti.
-- Résultat : _à compléter à la fusion_.
+- Résultat (2026-10-18) : CI GitHub Actions verte (ruff + 29 tests) sur la PR #1 ; sur la RTX 3080 Ti de Damien (Windows 11, Python 3.12.13) : `DEV.ps1 -Action install` OK, `test` 29 passed en 0,72 s, `smoke` détecte x86_64, 12 Go et suggère `rtx3080ti`. Porte franchie.
+- Correctif au passage : `DEV.ps1` enregistré en UTF-8 avec BOM, sinon PowerShell 5 affiche les accents en « dÃ© ».

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Outil de développement Luciole_agents_V1 (Windows, PowerShell).
 
