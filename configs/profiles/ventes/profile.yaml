@@ -1,6 +1,6 @@
 # Cas d'usage : assistant des commerciaux. Un dossier = un client × un
-# produit × un commercial, avec une suite de réunions. Squelette de
-# l'étape 0 ; les champs seront affinés avec Damien à l'étape 2.
+# produit × un commercial, avec une suite de réunions. Sur disque : un
+# sous-répertoire par dossier, avec un dossier.yaml optionnel.
 name: ventes
 title: Assistant des commerciaux
 description: >
@@ -34,6 +34,15 @@ entities:
     type_document:
       type: enum
       values: [compte_rendu, transcription, email, proposition, autre]
+ingestion:
+  dossier_file: dossier.yaml
+  # « reunion-2.transcript.md », « Réunion 3 - CR.docx »… donnent le numéro
+  # de réunion quand le document ne le dit pas lui-même.
+  filename_patterns:
+    - 'r[ée]union[-_ ]*(?P<numero_reunion>\d+)'
+  # Les réunions se rangent par numéro : pour un champ de dossier qui change
+  # au fil des réunions (l'issue), la dernière réunion fait foi.
+  document_order: numero_reunion
 chunking:
   size_tokens: 384
   overlap_pct: 10

@@ -19,3 +19,9 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
 - Décidé : voir `DECISIONS.md` (seuils PDF, contrat OCR, une PR à la fois sur `main`).
 - Reporté : OCR réel (moteur EasyOCR branché à l'étape 3 avec le profil matériel) ; numéros de page imprimés (« 14/47 ») à retrouver pour les citations (étape 2) ; cellules fusionnées des tableaux mal rendues par pymupdf4llm ; vérification locale de `main` par Damien (75 tests) attendue mais non bloquante, la CI faisant foi pour une étape sans GPU.
 - Résultat (2026-10-18) : **porte franchie.**
+
+## Étape 2 — Dossiers, métadonnées typées, chunking (ouverte le 2026-10-18)
+
+- Porte de passage : deux fichiers de même nom coexistent ; les champs d'une réunion fictive sont extraits et validés ; aucun chunk ne dépasse la limite du tokenizer.
+- Découpage prévu : PR 2a dossiers, `document_id`, métadonnées typées par règles, magasin structuré SQLite, corpus fictif à deux dossiers ; PR 2b chunking en tokens BGE-M3, parent-enfant, garde de longueur, numéros de page imprimés (« 14/47 »).
+- 2026-10-18, PR 2a : les deux premiers points de la porte sont couverts par `test_deux_fichiers_de_meme_nom_coexistent` et `test_champs_d_une_reunion_fictive_extraits_et_valides` ; 151 tests. Le troisième point attend la PR 2b.
