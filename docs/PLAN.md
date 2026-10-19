@@ -103,7 +103,7 @@ Construction de l'image arm64 et test de fumée sur le GX10 (reportés de l'éta
 - [x] Étape 1 (2026-10-18, PR #2 à #6)
 - [x] Étape 2
 - [x] Étape 3 (2026-10-18, PR #11 à #16, 3080 Ti ; arm64 à vérifier sur le GX10)
-- [ ] Étape 4
+- [x] Étape 4 (2026-10-19, PR #18 à #22, 3080 Ti : 0/35 esquive, bon tome cité 24/24)
 - [ ] Étape 5
 - [ ] Étape 6
 - [ ] Étape 7

@@ -47,7 +47,7 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
 - **Porte franchie le 2026-10-18 sur la 3080 Ti** : ingestion, réingestion sans doublon et suppression propre avec le vrai BGE-M3 (PR #13, 6 passed), test de fumée vert avec le GPU (PR #16). PR fusionnées : #11 à #16. Reporté : construction de l'image arm64 et test de fumée sur le GX10 (pas d'émulation dans le conteneur de Claude ; la porte disait « GX10 si disponible »), à faire au plus tard à l'étape 7 ; mesures de débit d'indexation sur GPU, à prendre avec le banc d'essai de l'étape 4.
 - Piège noté : OpenSearch bloque la création d'index quand le disque de la machine dépasse ~90 % (`cluster.blocks.create_index`) ; vu dans le conteneur de Claude, à surveiller sur les machines de Damien.
 
-## Étape 4 — Outils de recherche, génération, verdict, banc d'essai (ouverte le 2026-10-18)
+## Étape 4 — Outils de recherche, génération, verdict, banc d'essai (ouverte le 2026-10-18, close le 2026-10-19)
 
 - Porte de passage (GPU) : pas de régression par rapport à V5 sur bon tome et esquives.
 - Référence connue (post-mortem Belacom, 05-06/08/2026, 20 cas MRAe) : pipeline procédural 0/20 esquive, 9/10 bon tome ; pipeline avec déduction de question 1/20 esquive, 10/10 bon tome. À remplacer par les rapports de campagne V5 (`rapport_*.txt`) s'ils existent. Le jeu de référence (remarques MRAe et réponses wpd, Beaumont Sud et Brissy) reste hors du dépôt, sur la machine de Damien.
@@ -62,3 +62,19 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
 - 2026-10-18, PR « citations avec le dossier » fusionnée (#20) ; sur la 3080 Ti, les citations donnent `atelier-dubois/reunion-3.transcript.md, p. 1`.
 - 2026-10-18, jeu de référence : Damien a fourni sur sa machine (hors dépôt) les études d'impact de Beaumont Sud et Brissy, six avis MRAe et les six réponses wpd. Les réponses DOCX suivent toutes la même forme (cadre « Remarque N », recommandation, renvois « Tome 4 – Milieu naturel : p. 432-433 »). Tiré par `python -m luciole.evaluation.reference` : Beaumont Sud 15 remarques dont 9 avec renvoi, Brissy 20 dont 15, soit **35 remarques, 24 avec tome et pages attendus**. Les numéros sont ceux imprimés dans les tomes (égaux aux numéros PDF sur ces tomes, étape 2). Limites connues : un renvoi « Tome 3 … étude acoustique » vise un fichier sans numéro de tome ; les renvois aux annexes de la réponse sont ignorés.
 - 2026-10-18, PR 4c : `luciole/evaluation/` (réglages `configs/profiles/mrae/evaluation/bench.yaml`, lecteur des réponses DOCX, banc `python -m luciole.evaluation.bench` et `DEV.ps1 -Action bench`). Mesures : bon tome @1/@3/@8, bonne page @k (à 2 pages près), MRR tome ; avec `--answer` : esquives, verdicts, tome cité. Recherche limitée au dossier de chaque remarque ; deux passages par défaut, les remarques qui changent donnent le plancher de bruit ; rapport JSON dans `data/bench/`. Choisi automatiquement, le profil d'une machine à GPU dont PyTorch ne voit pas le GPU (Windows hors Docker) garde son LLM et met embedding et reranker sur le processeur (`rtx3080ti-cpu`). 290 tests unitaires. L'OCR n'est pas branché dans la ligne de commande d'indexation : les pages scannées restent marquées « à OCR » sans texte (à mesurer sur ces tomes).
+- 2026-10-18, 3080 Ti, indexation du jeu MRAe : arrêt sur un tome de 396 pages, Qdrant refusant une écriture de 56 Mo (limite 32 Mo). PR #22 : écritures Qdrant par paquets de 128 points et OpenSearch par paquets de 500. Indexation complète ensuite : 35 documents, 7514 morceaux enfants, 4525 parents, en 9955 s (2 h 46, embedding sur le processeur hors Docker). Rien n'avait été gardé du passage interrompu (« 0 déjà à jour »).
+- 2026-10-19, 3080 Ti, banc d'essai avec réponse (`-Answer`, deux passages, qwen2.5:14b-instruct-q4_K_M, BGE-M3 5617a9f, reranker 953dc6f), 35 remarques dont 24 avec renvoi :
+
+  | Mesure | Passage 1 | Passage 2 | V3 (post-mortem) |
+  |---|---|---|---|
+  | Esquives | 0/35 | 0/35 | 0/20 |
+  | Réponse citant le bon tome | 24/24 | 23/24 | 9/10 |
+  | Bon tome en tête de recherche (@1) | 14/24 | 14/24 | — |
+  | Bon tome dans les 3 / 8 premiers | 22/24, 24/24 | identique | — |
+  | Bonne page (à 2 pages près) @1 / @3 / @8 | 5, 8, 15 sur 24 | identique | — |
+  | MRR tome | 0,744 | 0,744 | — |
+  | Verdicts | 27 SUFFISANT, 8 PARTIEL, 0 INSUFFISANT | identique | — |
+
+  Recherche identique aux deux passages ; une seule remarque change (BeaumontSud-R1, tome cité au premier passage, pas au second) : c'est le plancher de bruit du LLM. Environ 94 s par remarque, 55 min par passage.
+- **Porte de l'étape 4 franchie le 2026-10-19** : aucune esquive (0/35 contre 0/20 en V3) et le bon tome cité 24 fois sur 24 (23 au second passage) contre 9 sur 10 en V3. Les deux jeux diffèrent (20 remarques en V3, 35 ici) : la comparaison porte sur les taux.
+- Reste pour la suite : la bonne page est faible (5/24 en tête, 15/24 dans les 8 premiers) et le bon tome n'est en tête que 14 fois sur 24, à travailler avec la boucle de l'étape 5 (recherche par tome, relance ciblée) ; la confiance (score brut du reranker) n'est toujours pas calibrée ; l'OCR n'est pas branché dans l'indexation ; 94 s par réponse sur la 3080 Ti ; le renvoi acoustique sans numéro de tome n'est pas compté.

@@ -92,3 +92,9 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 
 - Le GPU dans Docker demande les capacités `compute` (CUDA) et `utility` (nvidia-smi) : nvidia-smi qui marche dans le conteneur ne prouve pas que PyTorch voit le GPU.
 - Le cache de uv se monte pendant la construction (`--mount=type=cache`), sinon chaque bibliothèque CUDA est copiée deux fois dans l'image.
+
+## Leçons de l'étape 4
+
+- Une écriture vers Qdrant ou OpenSearch part par paquets : un gros tome d'un bloc dépasse la limite de taille de requête de Qdrant (32 Mo).
+- Ollama sur GPU ne rend pas deux fois le même texte, même à température 0 et graine fixe : un test vérifie la source, le contenu et l'absence d'esquive, jamais l'égalité mot pour mot.
+- La « confiance » est le score brut du reranker (0,01 pour une bonne réponse indirecte) : ne pas s'en servir comme seuil avant calibration.
