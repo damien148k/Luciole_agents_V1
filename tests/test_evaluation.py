@@ -24,6 +24,7 @@ from luciole.evaluation.spec import BenchSpec, load_bench_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+from test_agent_mrae import ANALYSIS_JSON  # noqa: E402
 from test_answer import EVASIVE, GOOD, ScaledReranker, ScriptedLLM  # noqa: E402
 from test_index_pipeline import Setup  # noqa: E402
 
@@ -217,14 +218,14 @@ def test_banc_reponses_et_bruit(bench):
 def test_banc_par_la_boucle(bench, tmp_path):
     """--agent : la boucle MRAe répond ; une esquive est rattrapée par sa passe
     élargie, comme dans le RAG seul."""
-    loop = ROOT / "configs" / "profiles" / "mrae" / "loop.yaml"
-    shutil.copy(loop, tmp_path / "profiles" / "ventes" / "loop.yaml")
-    llm = ScriptedLLM(EVASIVE, GOOD)
+    for name in ("loop.yaml", "prompts.yaml"):  # la boucle MRAe et ses prompts
+        shutil.copy(ROOT / "configs" / "profiles" / "mrae" / name, tmp_path / "profiles" / "ventes")
+    llm = ScriptedLLM(ANALYSIS_JSON, EVASIVE, GOOD)
     out, rep = bench("--agent", "--runs", "1", "--only", "Dubois-R1", llm=llm)
     summary = rep["runs"][0]["summary"]
     assert rep["mode"] == "boucle" and "(boucle)" in out
     assert summary["esquives"] == 0 and summary["verdicts"]["SUFFISANT"] == 1
-    assert summary["tome_cite"] == 1 and len(llm.calls) == 2
+    assert summary["tome_cite"] == 1 and len(llm.calls) == 3  # analyse, deux rédactions
     assert rep["models"]["llm"] == "llm-scripte"
 
 

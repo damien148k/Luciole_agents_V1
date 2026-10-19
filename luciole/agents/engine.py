@@ -44,6 +44,10 @@ class State:
     conditions: list[Condition] | None = None
     document_ids: Sequence[str] | None = None
     passages: list[Passage] = field(default_factory=list)
+    #: Extractions typées, par nom de schéma (outil ``extract``).
+    extracted: dict[str, dict] = field(default_factory=dict)
+    #: Questions de recherche composées (outil ``compose``).
+    questions: list[str] = field(default_factory=list)
     latest: Answer | None = None
     best: Answer | None = None
     count: int | None = None

@@ -1,5 +1,6 @@
-"""Moteur de boucles avec la boucle MRAe réelle (``configs/profiles/mrae/
-loop.yaml``), un LLM scripté et le corpus « ventes » indexé en mémoire.
+"""Moteur de boucles avec la boucle « RAG en nœuds » de l'étape 5a, un LLM
+scripté et le corpus « ventes » indexé en mémoire. La boucle MRAe complète
+(analyse, questions composées) est vérifiée dans ``test_agent_mrae.py``.
 
 Ce qui est vérifié : le code choisit la suite et l'arrêt (règles, budget,
 raffinement borné), la meilleure réponse est gardée, la trace dit tout."""
@@ -8,6 +9,7 @@ import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from luciole.agents.engine import BUDGET_EXHAUSTED, LoopAgent
 from luciole.agents.tools import build_agent
@@ -27,12 +29,42 @@ from test_answer import (  # noqa: E402
     env,  # noqa: F401
 )
 
-MRAE_LOOP = load_profile(ROOT / "configs" / "profiles" / "mrae").loop
+#: La boucle MRAe de l'étape 5a : le RAG de l'étape 4 en nœuds, une passe élargie.
+RAG_LOOP = Loop.model_validate(
+    yaml.safe_load(
+        """
+name: mrae
+start: rechercher
+max_steps: 8
+max_refinements: 1
+on_budget: reponse
+nodes:
+  rechercher:
+    type: retrieve
+    rules: [{when: "count == 0", then: sans_reponse}]
+    default: rediger
+  rediger: {type: synthesize, default: verdict}
+  verdict:
+    type: verdict
+    rules:
+      - {when: "verdict != 'SUFFISANT' and refinements_left > 0", then: elargir}
+      - {when: "verdict == 'INSUFFISANT'", then: sans_reponse}
+    default: reponse
+  elargir:
+    type: retrieve
+    params: {mode: deep, refine: true}
+    rules: [{when: "count == 0", then: verdict}]
+    default: rediger
+  reponse: {type: terminal}
+  sans_reponse: {type: terminal}
+"""
+    )
+)
 VENTES_LOOP = load_profile(ROOT / "configs" / "profiles" / "ventes").loop
 PARTIAL = GOOD + " Le devis prévoyait 27 500 euros."
 
 
-def agent(env, llm, loop=MRAE_LOOP, tracer=None):  # noqa: F811
+def agent(env, llm, loop=RAG_LOOP, tracer=None):  # noqa: F811
     return build_agent(loop, answerer(env, llm), tracer=tracer)
 
 
@@ -115,7 +147,7 @@ def test_aucun_passage_sans_appel_au_llm(env):  # noqa: F811
 
 
 def test_plafond_de_noeuds(env):  # noqa: F811
-    tight = MRAE_LOOP.model_copy(update={"max_steps": 2})
+    tight = RAG_LOOP.model_copy(update={"max_steps": 2})
     result = agent(env, ScriptedLLM(GOOD), loop=tight).run(QUESTION)
     assert result.stopped_reason == "reponse" and result.steps_used == 2
     assert result.path == ["rechercher", "rediger", "reponse"]
