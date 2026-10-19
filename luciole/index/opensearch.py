@@ -47,10 +47,18 @@ MAPPING: dict[str, Any] = {
 }
 
 
+# Morceaux par requête « bulk ». OpenSearch refuse par défaut un corps de plus
+# de 100 Mo ; les tomes paysage les plus lourds en approchent d'un seul bloc.
+SEND_SIZE = 500
+
+
 class OpenSearchIndex:
-    def __init__(self, client: Any, index: str) -> None:
+    def __init__(self, client: Any, index: str, *, send_size: int = SEND_SIZE) -> None:
+        if send_size < 1:
+            raise ValueError(f"send_size doit valoir au moins 1, pas {send_size}")
         self.client = client
         self.index = index
+        self.send_size = send_size
 
     def ensure(self) -> None:
         if not self.client.indices.exists(index=self.index):
@@ -68,6 +76,10 @@ class OpenSearchIndex:
         self.delete_document(document_id)
         if not chunks:
             return
+        for start in range(0, len(chunks), self.send_size):
+            self._send(chunks[start : start + self.send_size])
+
+    def _send(self, chunks: Sequence[Chunk]) -> None:
         body: list[dict] = []
         for c in chunks:
             body.append({"index": {"_index": self.index, "_id": c.chunk_id}})

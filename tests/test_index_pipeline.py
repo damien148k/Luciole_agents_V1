@@ -190,6 +190,33 @@ def test_parent_relu_dans_le_magasin(env):
     assert chunks[0].kind == "parent" and chunks[-1].kind == "child"
 
 
+def test_gros_document_envoye_par_paquets(env):
+    """Un tome de 396 pages envoyé d'un bloc a été refusé par Qdrant (56 Mo pour
+    une limite de 32 Mo) : les écritures partent par paquets, sans rien perdre."""
+    sent = {"qdrant": [], "opensearch": []}
+    upsert, bulk = env.qdrant.upsert, env.opensearch.bulk
+
+    def counted_upsert(collection, points, **kw):
+        sent["qdrant"].append(len(points))
+        return upsert(collection, points=points, **kw)
+
+    def counted_bulk(body, **kw):
+        sent["opensearch"].append(len(body) // 2)
+        return bulk(body=body, **kw)
+
+    env.qdrant.upsert, env.opensearch.bulk = counted_upsert, counted_bulk
+    env.vectors.send_size = env.lexical.send_size = 3
+    env.pipeline.run(env.root)
+    env.assert_aligned()
+    for name, sizes in sent.items():
+        assert max(sizes) <= 3, name
+        assert any(n == 3 for n in sizes) and len(sizes) > len(env.store.select("document"))
+    with pytest.raises(ValueError, match="send_size"):
+        QdrantIndex(env.qdrant, "x", 128, send_size=0)
+    with pytest.raises(ValueError, match="send_size"):
+        OpenSearchIndex(env.opensearch, "x", send_size=0)
+
+
 def test_dimension_et_collection_incompatibles(env):
     with pytest.raises(ValueError, match="dimension"):
         IngestionPipeline(
