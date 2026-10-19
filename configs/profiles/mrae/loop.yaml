@@ -1,42 +1,51 @@
-# Boucle MRAe : l'enchaînement du pipeline query2 de V5, écrit comme une
-# machine à états. Squelette de l'étape 0 : les paramètres de chaque outil
-# et la grammaire exacte des règles sont fixés à l'étape 5.
+# Boucle MRAe, étape 5a : le RAG de l'étape 4 décomposé en nœuds, avec un
+# raffinement borné en code (une passe élargie au plus). L'analyse de la
+# remarque et les questions composées de V5 (query2) arrivent à l'étape 5b.
+#
+# Champs lisibles par les règles : verdict, confidence, evasive, count,
+# refinements_left, steps_left, step (voir luciole/agents/rules.py).
 name: mrae
-description: Analyser la remarque, chercher dans le dossier, rédiger une réponse sourcée.
-start: analyser
+description: Chercher dans le dossier, rédiger une réponse sourcée, élargir une fois si elle est faible.
+start: rechercher
 max_steps: 8
+max_refinements: 1
+on_budget: reponse
 nodes:
-  analyser:
-    type: extract
-    description: Extraire objet, type d'objet, acte, aspects et motifs de la remarque (JSON typé).
-    params: {schema: analyse_remarque}
-    default: rechercher
   rechercher:
     type: retrieve
-    description: Une recherche hybride par question composée à partir de l'analyse.
+    description: Recherche hybride dans le dossier de la remarque.
+    rules:
+      - when: "count == 0"
+        then: sans_reponse
+        reason: Aucun passage dans le dossier
+    default: rediger
+  rediger:
+    type: synthesize
+    description: Réponse rédigée à partir des passages, gardes de l'étape 4.
     default: verdict
   verdict:
     type: verdict
-    description: Couverture des questions par les passages retrouvés.
+    description: Garde la meilleure réponse rédigée (verdict, puis confiance).
     rules:
-      - when: "verdict == 'INSUFFISANT' and refinements_left > 0"
+      - when: "verdict != 'SUFFISANT' and refinements_left > 0"
         then: elargir
-        reason: Trop peu de passages pertinents, une passe élargie est autorisée
+        reason: Réponse faible ou esquive, une passe élargie est permise
       - when: "verdict == 'INSUFFISANT'"
         then: sans_reponse
-    default: rediger
+        reason: Toujours insuffisante après la passe élargie
+    default: reponse
   elargir:
     type: retrieve
-    description: Passe élargie (plus de candidats) sur les questions non couvertes.
-    params: {mode: deep}
-    default: verdict
-  rediger:
-    type: synthesize
-    description: Rédiger la réponse à partir des blocs cités, gardes de rétention et de pages.
-    default: reponse
+    description: Passe élargie (plus de candidats), comptée comme raffinement.
+    params: {mode: deep, refine: true}
+    rules:
+      - when: "count == 0"
+        then: verdict
+        reason: La passe élargie ne trouve rien de plus
+    default: rediger
   reponse:
     type: terminal
     description: Réponse sourcée rendue à l'utilisateur.
   sans_reponse:
     type: terminal
-    description: Le dossier ne permet pas de répondre ; dire ce qui manque.
+    description: Le dossier ne permet pas de répondre ; la réponse le dit.

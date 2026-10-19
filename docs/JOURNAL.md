@@ -78,3 +78,19 @@ Une entrée par étape : ce qui a été fait, ce qui a été mesuré, ce qui a �
   Recherche identique aux deux passages ; une seule remarque change (BeaumontSud-R1, tome cité au premier passage, pas au second) : c'est le plancher de bruit du LLM. Environ 94 s par remarque, 55 min par passage.
 - **Porte de l'étape 4 franchie le 2026-10-19** : aucune esquive (0/35 contre 0/20 en V3) et le bon tome cité 24 fois sur 24 (23 au second passage) contre 9 sur 10 en V3. Les deux jeux diffèrent (20 remarques en V3, 35 ici) : la comparaison porte sur les taux.
 - Reste pour la suite : la bonne page est faible (5/24 en tête, 15/24 dans les 8 premiers) et le bon tome n'est en tête que 14 fois sur 24, à travailler avec la boucle de l'étape 5 (recherche par tome, relance ciblée) ; la confiance (score brut du reranker) n'est toujours pas calibrée ; l'OCR n'est pas branché dans l'indexation ; 94 s par réponse sur la 3080 Ti ; le renvoi acoustique sans numéro de tome n'est pas compté.
+
+## Étape 5 — Moteur de boucles (ouverte le 2026-10-19)
+
+- Porte de passage : sur le jeu MRAe, la boucle ne fait jamais moins bien que le RAG seul ; sur 10 dossiers commerciaux fictifs, les analyses citent les bonnes réunions.
+- Découpage prévu : PR 5a moteur (règles à liste blanche, machine à états, budget, raffinement borné, trace), outils `retrieve`, `synthesize`, `verdict`, boucle MRAe de base, `POST /api/agent/query`, `DEV.ps1 -Action agent`, `bench -Agent` ; PR 5b boucle MRAe complète (analyse de la remarque par `extract`, questions composées de `query2`, synthèse) mesurée contre le RAG seul ; PR 5c outils `filter`, `aggregate`, `extract`, `compare`, boucle `ventes` et 10 dossiers commerciaux fictifs.
+- 2026-10-19, PR 5a : `luciole/agents/` (`rules.py` : grammaire des règles, lue par `ast` et parcourue sans `eval`, champs permis `verdict`, `confidence`, `evasive`, `count`, `refinements_left`, `steps_left`, `step` ; `engine.py` : `LoopAgent`, arrêt sur nœud terminal, plafond `max_steps` et raffinements `max_refinements` décomptés en code, nœud `on_budget`, meilleure réponse gardée, trace complète ; `tools.py` ; `run.py`). Les règles de `loop.yaml` sont validées au chargement du profil. Boucle MRAe de base : rechercher, rédiger, verdict, une passe élargie si la réponse n'est pas SUFFISANT. `Answerer.draft` rédige sans passe élargie, la boucle décide. 335 tests unitaires. La boucle `ventes` est refusée par le moteur tant que ses outils manquent (PR 5c).
+- 2026-10-19, 3080 Ti, banc `-Agent` sur la branche de la PR 5a (deux passages), comparé au banc RAG seul du même jour :
+
+  | Mesure | RAG seul (2 passages) | Boucle 5a (2 passages) |
+  |---|---|---|
+  | Esquives | 0/35, 0/35 | 0/35, 0/35 |
+  | Réponse citant le bon tome | 24/24, 23/24 | 23/24, 22/24 |
+  | Verdicts | 27 SUFFISANT, 8 PARTIEL | 32 SUFFISANT, 3 PARTIEL |
+  | Durée d'un passage | 55 min | 65 min |
+
+  Recherche identique (bon tome @1 14/24, bonne page @8 15/24). Les 5 réponses PARTIEL passées à SUFFISANT ont toutes été réécrites après la passe élargie (environ 90 s de plus chacune). Lues une à une : BeaumontSud-R5 et Brissy-R7 sont plus précises (variantes comparées, cartes et photomontages situés). En revanche, Brissy-R12 (espèces exotiques envahissantes) perd le tome attendu aux deux passages : la réponse du RAG citait le tome 4 en disant le dossier muet, celle de la boucle cite les tomes 1 et 2 (mesure sur les remblais). BeaumontSud-R1 change d'un passage à l'autre dans les deux modes (bruit). Plusieurs réponses élargies citent « Tome N - titre, p. X » sans nom de fichier : la garde des pages ne les relie alors qu'au lot entier, ce qui peut rendre SUFFISANT une citation moins bien vérifiée. Porte non jugée sur la 5a : la boucle de l'étape 5 est celle de la PR 5b, et ce banc devient sa référence.

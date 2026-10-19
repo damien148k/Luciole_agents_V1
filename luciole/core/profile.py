@@ -269,12 +269,19 @@ class UseCaseProfile(StrictModel):
 
 class Rule(StrictModel):
     """Règle déterministe évaluée en code. ``when`` est une expression sur une
-    liste blanche de champs ; sa grammaire est fixée à l'étape 5. Ici on exige
-    seulement qu'elle soit non vide et qu'elle mène à un nœud existant."""
+    liste blanche de champs (grammaire dans ``luciole.agents.rules``), validée
+    ici au chargement : une règle hors grammaire refuse le profil."""
 
     when: str = Field(min_length=1)
     then: str = Field(min_length=1, description="Nom du nœud cible")
     reason: str = ""
+
+    @model_validator(mode="after")
+    def _grammar(self) -> Rule:
+        from luciole.agents.rules import parse
+
+        parse(self.when)
+        return self
 
 
 class Node(StrictModel):
@@ -306,6 +313,12 @@ class Loop(StrictModel):
     max_steps: int = Field(
         6, ge=1, le=50, description="Plafond de nœuds traversés, décrémenté en code"
     )
+    max_refinements: int = Field(
+        1, ge=0, le=5, description="Passages par un nœud `refine: true`, décomptés en code"
+    )
+    on_budget: str | None = Field(
+        None, description="Nœud terminal atteint si `max_steps` est épuisé"
+    )
     nodes: dict[str, Node]
 
     @model_validator(mode="after")
@@ -315,6 +328,8 @@ class Loop(StrictModel):
         terminals = [n for n, spec in self.nodes.items() if spec.type == TERMINAL_NODE_TYPE]
         if not terminals:
             raise ValueError("une boucle doit avoir au moins un nœud terminal")
+        if self.on_budget is not None and self.on_budget not in terminals:
+            raise ValueError(f"`on_budget` : `{self.on_budget}` n'est pas un nœud terminal")
         for name, spec in self.nodes.items():
             targets = [r.then for r in spec.rules] + ([spec.default] if spec.default else [])
             for target in targets:

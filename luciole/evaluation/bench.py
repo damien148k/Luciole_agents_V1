@@ -189,9 +189,12 @@ def table(summary: dict, metrics: MetricsSpec, baseline: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
-def report(items, runs, spec: BenchSpec, *, profile: str, reference: str, models: dict) -> dict:
+def report(
+    items, runs, spec: BenchSpec, *, profile: str, reference: str, models: dict, mode: str = "rag"
+) -> dict:
     return {
         "profile": profile,
+        "mode": mode,
         "reference": reference,
         "date": datetime.now(UTC).isoformat(timespec="seconds"),
         "versions": Versions().as_dict(),
@@ -217,6 +220,9 @@ def parser():
     search.add_service_options(cli)
     cli.add_argument("--reference", required=True, help="jeu de référence JSONL (hors dépôt)")
     cli.add_argument("--answer", action="store_true", help="faire rédiger les réponses (Ollama)")
+    cli.add_argument(
+        "--agent", action="store_true", help="répondre par la boucle du profil (implique --answer)"
+    )
     cli.add_argument("--runs", type=int, default=2, help="nombre de passages (défaut 2)")
     cli.add_argument("--only", action="append", default=[], help="identifiant de remarque")
     cli.add_argument("--report", help="rapport JSON (défaut : data/bench/<profil>-<date>.json)")
@@ -240,26 +246,36 @@ def main(argv: list[str] | None = None, *, log=print, **services) -> int:
             raise SystemExit("aucune remarque ne correspond à --only")
     args.question, args.where, args.top_k = "", [], None
     llm_factory = services.pop("llm_factory", None)
-    if args.answer:
+    mode = "boucle" if args.agent else "rag"
+    if args.answer or args.agent:
         answerer, store = ask.build(args, llm_factory=llm_factory, **services)
         retriever = answerer.retriever
+        llm = getattr(answerer.llm, "model", None)
+        if args.agent:
+            from luciole.agents.tools import build_agent
+            from luciole.core.profile import load_profile
+
+            loop = load_profile(Path(args.profiles_dir) / args.profile).loop
+            answerer = build_agent(loop, answerer, tracer=answerer.tracer)
     else:
-        answerer = None
+        answerer, llm = None, None
         retriever, store = search.build(args, **services)
     models = {
         "embedding": getattr(retriever.embedder, "name", None),
         "reranker": getattr(retriever.reranker, "name", None),
-        "llm": getattr(answerer.llm, "model", None) if answerer else None,
+        "llm": llm,
     }
     runs = []
     try:
         for r in range(args.runs):
-            log(f"Passage {r + 1}/{args.runs} : {len(items)} remarque(s)")
+            log(f"Passage {r + 1}/{args.runs} ({mode}) : {len(items)} remarque(s)")
             runs.append(run_once(items, retriever, store, spec, answerer, log=log))
             log(table(summarize(runs[-1], spec.metrics), spec.metrics, {}))
     finally:
         store.close()
-    out = report(items, runs, spec, profile=args.profile, reference=args.reference, models=models)
+    out = report(
+        items, runs, spec, profile=args.profile, reference=args.reference, models=models, mode=mode
+    )
     data_dir = Path(os.environ.get("LUCIOLE_DATA_DIR") or "data")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     path = Path(args.report or data_dir / "bench" / f"{args.profile}-{stamp}.json")

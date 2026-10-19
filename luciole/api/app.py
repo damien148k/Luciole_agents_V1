@@ -1,4 +1,5 @@
-"""API HTTP : ``POST /api/rag/query``, ``GET /api/health``, ``GET /api/traces/{id}``.
+"""API HTTP : ``POST /api/rag/query``, ``POST /api/agent/query``,
+``GET /api/health``, ``GET /api/traces/{id}``.
 
 Le contrat de ``/api/rag/query`` est celui de ``rag-ingestion-spec.md`` (7) :
 la boucle de l'étape 5 appellera ce RAG comme un outil, sans connaître son
@@ -10,6 +11,10 @@ qu'une réponse à la fois, et le magasin SQLite reste dans le fil qui l'a
 ouvert (une connexion partagée entre fils concurrents a fait tomber V5, voir
 le post-mortem). ``/api/health`` répond pendant qu'une question est en cours.
 
+``/api/agent/query`` fait passer la question par la boucle du cas d'usage
+(``loop.yaml``) ; sa réponse est celle de ``/api/rag/query`` plus le chemin
+suivi, le nœud d'arrêt et les règles qui ont matché.
+
     uv run --extra embed uvicorn luciole.api.app:app --port 8000
 """
 
@@ -18,11 +23,15 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
+from luciole.agents.engine import LoopAgent
+from luciole.agents.tools import build_agent
+from luciole.core.profile import Loop, load_profile
 from luciole.core.versions import Versions
 from luciole.generation.answer import Answerer
 from luciole.generation.trace import JsonlTracer
@@ -68,39 +77,70 @@ class QueryResponse(BaseModel):
     guards: dict
 
 
+class AgentRule(BaseModel):
+    node: str
+    when: str
+    then: str
+    reason: str
+
+
+class AgentResponse(QueryResponse):
+    stopped_reason: str
+    path: list[str]
+    steps_used: int
+    matched_rules: list[AgentRule]
+
+
+PROFILES_DIR = Path(__file__).resolve().parents[2] / "configs" / "profiles"
+
+
 def create_app(
     answerer_factory: Callable[[str], Answerer],
     *,
     tracer: JsonlTracer | None = None,
     use_cases: Callable[[], list[str]] | None = None,
+    loops: Callable[[str], Loop] | None = None,
 ) -> FastAPI:
     """``answerer_factory(cas)`` construit l'Answerer d'un cas d'usage (vrais
-    modèles en production, doublures en test)."""
+    modèles en production, doublures en test) ; ``loops(cas)`` donne sa boucle
+    (par défaut ``configs/profiles/<cas>/loop.yaml``)."""
     app = FastAPI(title="Luciole", version=Versions().app)
     answerers: dict[str, Answerer] = {}
+    agents: dict[str, LoopAgent] = {}
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="luciole-answer")
     tracer = tracer or JsonlTracer()
+    loops = loops or (lambda use_case: load_profile(PROFILES_DIR / use_case).loop)
 
-    def answer(request: QueryRequest) -> dict:  # toujours dans le fil de travail
-        if request.use_case not in answerers:
+    def answerer_of(use_case: str) -> Answerer:
+        if use_case not in answerers:
             known = use_cases() if use_cases else None
-            if known is not None and request.use_case not in known:
-                raise HTTPException(
-                    404, f"cas d'usage « {request.use_case} » inconnu ({', '.join(known)})"
-                )
-            answerers[request.use_case] = answerer_factory(request.use_case)
+            if known is not None and use_case not in known:
+                raise HTTPException(404, f"cas d'usage « {use_case} » inconnu ({', '.join(known)})")
+            answerers[use_case] = answerer_factory(use_case)
+        return answerers[use_case]
+
+    def agent_of(use_case: str, answerer: Answerer) -> LoopAgent:
+        if use_case not in agents:
+            agents[use_case] = build_agent(loops(use_case), answerer, tracer=answerer.tracer)
+        return agents[use_case]
+
+    def answer(request: QueryRequest, agent: bool) -> dict:  # toujours dans le fil de travail
+        answerer = answerer_of(request.use_case)
         conditions = [Condition(f.field, f.op, f.value) for f in request.filters]
         try:
-            result = answerers[request.use_case].answer(
-                request.question, conditions=conditions, document_ids=request.document_ids
-            )
+            run = agent_of(request.use_case, answerer).run if agent else answerer.answer
+            result = run(request.question, conditions=conditions, document_ids=request.document_ids)
         except ValueError as e:
             raise HTTPException(422, str(e)) from e
         return result.to_dict()
 
     @app.post("/api/rag/query", response_model=QueryResponse)
     async def rag_query(request: QueryRequest) -> dict:
-        return await asyncio.get_running_loop().run_in_executor(worker, answer, request)
+        return await asyncio.get_running_loop().run_in_executor(worker, answer, request, False)
+
+    @app.post("/api/agent/query", response_model=AgentResponse)
+    async def agent_query(request: QueryRequest) -> dict:
+        return await asyncio.get_running_loop().run_in_executor(worker, answer, request, True)
 
     @app.get("/api/health")
     def health() -> dict:

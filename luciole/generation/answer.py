@@ -70,6 +70,16 @@ def _sources(passages: Sequence[Passage]) -> list[SourcePages]:
     ]
 
 
+def _step(kind: str, completion: Completion, used: Sequence[Passage]) -> dict:
+    return {
+        "step": kind,
+        "passages": len(used),
+        "prompt_tokens": completion.prompt_tokens,
+        "completion_tokens": completion.completion_tokens,
+        "truncated": completion.truncated,
+    }
+
+
 def decide(report: GuardReport, has_passages: bool) -> Verdict:
     if not has_passages or report.evasive:
         return "INSUFFISANT"
@@ -139,11 +149,12 @@ class Answerer:
             )
 
     # -- étapes ---------------------------------------------------------------
-    def _deep_spec(self) -> RetrievalSpec:
+    def deep_spec(self) -> RetrievalSpec:
+        """Réglages de recherche de la passe élargie (`generation.deep`)."""
         deep = self.profile.generation.deep.model_dump()
         return RetrievalSpec.model_validate({**self.profile.retrieval.model_dump(), **deep})
 
-    def _options(self, retry: bool = False) -> dict:
+    def llm_options(self, retry: bool = False) -> dict:
         gen = self.profile.generation
         extra = gen.retry_options if retry else gen.options
         return {
@@ -156,7 +167,7 @@ class Answerer:
     def _write(self, question: str, passages: Sequence[Passage], retry: bool = False):
         context, used = format_passages(passages, self.budget)
         prompt = self.prompts.render_answer(question, context)
-        completion = self.llm.generate(self.prompts.system, prompt, options=self._options(retry))
+        completion = self.llm.generate(self.prompts.system, prompt, options=self.llm_options(retry))
         return completion, used
 
     def _evasive(self, text: str) -> bool:
@@ -179,8 +190,7 @@ class Answerer:
     ) -> Answer:
         started = time.monotonic()
         trace_id = uuid.uuid4().hex
-        gen = self.profile.generation
-        g = gen.guards
+        g = self.profile.generation.guards
         steps: list[dict] = []
 
         def search(spec: RetrievalSpec | None) -> RetrievalResult:
@@ -189,45 +199,62 @@ class Answerer:
             )
 
         def note(kind: str, completion: Completion, used: Sequence[Passage]) -> None:
-            steps.append(
-                {
-                    "step": kind,
-                    "passages": len(used),
-                    "prompt_tokens": completion.prompt_tokens,
-                    "completion_tokens": completion.completion_tokens,
-                    "truncated": completion.truncated,
-                }
-            )
+            steps.append(_step(kind, completion, used))
 
         retrieval = search(None)
         searches = [retrieval.trace()]
         if not retrieval.passages:
-            result = Answer(
-                question,
-                self.prompts.no_results.strip(),
-                "INSUFFISANT",
-                0.0,
-                trace_id,
-                guards=GuardReport(evasive=True),
-            )
-            return self._finish(result, searches, steps, started)
+            return self._finish(self.empty(question, trace_id), searches, steps, started)
 
         completion, used = self._write(question, retrieval.passages)
         note("rédaction", completion, used)
-        report = GuardReport()
 
         # 1. esquive -> passe élargie, gardée si elle n'esquive plus
         evasive = self._evasive(completion.text)
         if evasive and g.retry_on_evasion:
-            deep = search(self._deep_spec())
+            deep = search(self.deep_spec())
             searches.append(deep.trace() | {"deep": True})
             if deep.passages:
                 second, used2 = self._write(question, deep.passages)
                 note("passe élargie", second, used2)
                 if not self._evasive(second.text):
                     completion, used, evasive = second, used2, False
-        report.evasive = evasive
 
+        result = self._finalize(question, trace_id, completion, used, evasive, note)
+        return self._finish(result, searches, steps, started)
+
+    def draft(self, question: str, passages: Sequence[Passage]) -> tuple[Answer, list[dict]]:
+        """Une rédaction sur des passages donnés, sans passe élargie : la boucle
+        de l'étape 5 décide elle-même d'élargir. Mêmes gardes que ``answer``.
+        Rend la réponse (sans trace écrite) et le détail des appels au LLM."""
+        steps: list[dict] = []
+        trace_id = uuid.uuid4().hex
+        if not passages:
+            return self.empty(question, trace_id), steps
+
+        def note(kind: str, completion: Completion, used: Sequence[Passage]) -> None:
+            steps.append(_step(kind, completion, used))
+
+        completion, used = self._write(question, passages)
+        note("rédaction", completion, used)
+        evasive = self._evasive(completion.text)
+        return self._finalize(question, trace_id, completion, used, evasive, note), steps
+
+    def empty(self, question: str, trace_id: str) -> Answer:
+        """Aucun passage : la réponse ``no_results`` du profil, sans appel au LLM."""
+        return Answer(
+            question,
+            self.prompts.no_results.strip(),
+            "INSUFFISANT",
+            0.0,
+            trace_id,
+            guards=GuardReport(evasive=True),
+        )
+
+    def _finalize(self, question, trace_id, completion, used, evasive, note) -> Answer:
+        """Gardes 2 et 3 puis verdict et confiance, sur la rédaction retenue."""
+        g = self.profile.generation.guards
+        report = GuardReport(evasive=evasive)
         # 2. tronquée ou dégénérée -> une relance, gardée si elle est propre
         truncated, degenerate = completion.truncated, self._degenerate(completion.text)
         if (truncated or degenerate) and g.retry_on_loop:
@@ -263,8 +290,7 @@ class Answerer:
             if verdict == "INSUFFISANT" or not scores
             else round(min(1.0, max(0.0, max(scores))), 3)
         )
-        result = Answer(question, text, verdict, confidence, trace_id, list(used), report)
-        return self._finish(result, searches, steps, started)
+        return Answer(question, text, verdict, confidence, trace_id, list(used), report)
 
     def _finish(
         self, result: Answer, searches: list[dict], steps: list[dict], started: float
@@ -283,7 +309,7 @@ class Answerer:
             "question": result.question,
             "searches": searches,
             "generation": steps,
-            "options": self._options(),
+            "options": self.llm_options(),
             "guards": result.guards.to_dict(),
             "verdict": result.verdict,
             "confidence": result.confidence,

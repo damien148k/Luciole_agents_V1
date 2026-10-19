@@ -17,6 +17,7 @@ from luciole.generation.trace import JsonlTracer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+from test_agent import MRAE_LOOP, VENTES_LOOP  # noqa: E402
 from test_answer import GOOD, QUESTION, ScriptedLLM, answerer  # noqa: E402
 from test_index_pipeline import Setup  # noqa: E402
 
@@ -136,7 +137,14 @@ def api(tmp_path):
         s.pipeline.run(s.root)
         return answerer(s, ScriptedLLM(GOOD), tracer=tracer)
 
-    client = TestClient(create_app(factory, tracer=tracer, use_cases=lambda: ["mrae", "ventes"]))
+    client = TestClient(
+        create_app(
+            factory,
+            tracer=tracer,
+            use_cases=lambda: ["mrae", "ventes"],
+            loops=lambda use_case: MRAE_LOOP if use_case == "mrae" else VENTES_LOOP,
+        )
+    )
     return client, built
 
 
@@ -188,3 +196,24 @@ def test_rag_query_filtres_et_erreurs(api):
         == 422
     )
     assert client.get("/api/traces/inconnue").status_code == 404
+
+
+def test_agent_query(api):
+    client, built = api
+    r = client.post("/api/agent/query", json={"question": QUESTION, "use_case": "mrae"})
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["verdict"] == "SUFFISANT" and body["answer"] == GOOD
+    assert body["stopped_reason"] == "reponse" and body["steps_used"] == 3
+    assert body["path"] == ["rechercher", "rediger", "verdict", "reponse"]
+    assert body["matched_rules"] == []
+    trace = client.get(f"/api/traces/{body['trace_id']}").json()
+    assert trace["kind"] == "agent" and trace["path"] == body["path"]
+    rag = client.post("/api/rag/query", json={"question": QUESTION, "use_case": "mrae"})
+    assert rag.json()["answer"] == body["answer"] and built == ["mrae"]
+
+
+def test_agent_query_boucle_pas_encore_executable(api):
+    client, _ = api
+    r = client.post("/api/agent/query", json={"question": QUESTION, "use_case": "ventes"})
+    assert r.status_code == 422 and "pas encore exécutable" in r.json()["detail"]
