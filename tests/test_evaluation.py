@@ -198,6 +198,7 @@ def test_banc_recherche(bench):
     assert all(c.startswith("atelier-dubois/") for c in first["citations"])
     assert rep["noise"] == {"passages": 2, "remarques_changeantes": []}
     assert rep["models"]["reranker"] == "faux-reranker" and rep["versions"]["app"]
+    assert rep["mode"] == "rag"
     assert "bon tome @1 : 1/2" in out and "Référence : source essai" in out
     assert "Plancher de bruit : 0 remarque" in out
 
@@ -210,6 +211,20 @@ def test_banc_reponses_et_bruit(bench):
     assert second["esquives"] == 1 and second["verdicts"]["INSUFFISANT"] == 1
     assert rep["noise"]["remarques_changeantes"] == ["Dubois-R1"]
     assert "esquives : 0/1" in out and "Plancher de bruit : 1 remarque(s)" in out
+    assert rep["models"]["llm"] == "llm-scripte"
+
+
+def test_banc_par_la_boucle(bench, tmp_path):
+    """--agent : la boucle MRAe répond ; une esquive est rattrapée par sa passe
+    élargie, comme dans le RAG seul."""
+    loop = ROOT / "configs" / "profiles" / "mrae" / "loop.yaml"
+    shutil.copy(loop, tmp_path / "profiles" / "ventes" / "loop.yaml")
+    llm = ScriptedLLM(EVASIVE, GOOD)
+    out, rep = bench("--agent", "--runs", "1", "--only", "Dubois-R1", llm=llm)
+    summary = rep["runs"][0]["summary"]
+    assert rep["mode"] == "boucle" and "(boucle)" in out
+    assert summary["esquives"] == 0 and summary["verdicts"]["SUFFISANT"] == 1
+    assert summary["tome_cite"] == 1 and len(llm.calls) == 2
     assert rep["models"]["llm"] == "llm-scripte"
 
 

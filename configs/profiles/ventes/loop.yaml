@@ -3,6 +3,7 @@ name: ventes
 description: Reconstituer la chronologie d'un dossier, extraire les signaux par réunion, comparer aux dossiers similaires, expliquer l'issue.
 start: selectionner
 max_steps: 10
+on_budget: analyse
 nodes:
   selectionner:
     type: filter

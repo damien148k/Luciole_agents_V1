@@ -19,16 +19,19 @@
                                       Pose une question à l'index (sens + mots, reranker) et cite les passages.
   .\DEV.ps1 -Action ask -UseCase ventes -Query "question"
                                       Réponse sourcée par le LLM local (Ollama lancé), verdict et trace.
-  .\DEV.ps1 -Action bench -UseCase mrae -Reference <fichier.jsonl> [-Answer]
+  .\DEV.ps1 -Action agent -UseCase mrae -Query "question"
+                                      Réponse par la boucle du cas d'usage (loop.yaml) : chemin, règles, arrêt.
+  .\DEV.ps1 -Action bench -UseCase mrae -Reference <fichier.jsonl> [-Answer] [-Agent]
                                       Banc d'essai sur un jeu de référence : bon tome, bonne page, MRR ;
-                                      avec -Answer, le LLM répond aussi (esquives, verdicts). Deux passages.
-  .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query).
+                                      avec -Answer, le LLM répond aussi (esquives, verdicts) ; avec -Agent,
+                                      la réponse passe par la boucle. Deux passages.
+  .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query, /api/agent/query).
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
 param(
     [Parameter(Mandatory = $true)]
-    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "ask", "bench", "api", "smoke")]
+    [ValidateSet("install", "test", "lint", "test-integration", "services-stop", "models", "index", "watch", "search", "ask", "agent", "bench", "api", "smoke")]
     [string]$Action,
     # Pour -Action index et watch : la racine des dossiers et le cas d'usage.
     [string]$Root,
@@ -38,6 +41,8 @@ param(
     # Pour -Action bench : le jeu de référence (hors dépôt), et -Answer pour faire répondre le LLM.
     [string]$Reference,
     [switch]$Answer,
+    # Pour -Action bench : répondre par la boucle du cas d'usage plutôt que par le RAG seul.
+    [switch]$Agent,
     # Pour -Action index, watch, search et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
@@ -131,6 +136,15 @@ switch ($Action) {
         uv run --extra embed python -m luciole.generation.ask $Query --profile $UseCase @extra
         if ($LASTEXITCODE -ne 0) { throw "Réponse en échec : voir le message ci-dessus" }
     }
+    "agent" {
+        Ensure-Uv
+        if (-not $UseCase -or -not $Query) { throw "Donner -UseCase <cas d'usage> et -Query <question>" }
+        Write-Step "Réponse par la boucle (cas d'usage $UseCase), LLM servi par Ollama"
+        $extra = @()
+        if ($Hardware) { $extra = @("--hardware", $Hardware) }
+        uv run --extra embed python -m luciole.agents.run $Query --profile $UseCase @extra
+        if ($LASTEXITCODE -ne 0) { throw "Boucle en échec : voir le message ci-dessus" }
+    }
     "bench" {
         Ensure-Uv
         if (-not $UseCase -or -not $Reference) { throw "Donner -UseCase <cas d'usage> et -Reference <fichier.jsonl>" }
@@ -138,6 +152,7 @@ switch ($Action) {
         $extra = @()
         if ($Hardware) { $extra += @("--hardware", $Hardware) }
         if ($Answer) { $extra += "--answer" }
+        if ($Agent) { $extra += "--agent" }
         uv run --extra embed python -m luciole.evaluation.bench --profile $UseCase --reference $Reference @extra
         if ($LASTEXITCODE -ne 0) { throw "Banc d'essai en échec : voir le message ci-dessus" }
     }
