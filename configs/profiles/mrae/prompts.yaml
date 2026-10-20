@@ -197,10 +197,11 @@ questions:
 
 # Cadrage ajouté à la rédaction quand l'analyse a réussi ({framing} du
 # gabarit answer).
-framing: |
-  ANALYSE DE LA REMARQUE (pour organiser la réponse, pas pour la citer) :
-  - objet visé : {objet}
-  - attendu du porteur de projet : {acte}
-  - points précis : {aspects}
-  - thèmes invoqués : {motifs}
-  - ce que le dossier doit établir : {demontrer}
+framing:
+  analyse_remarque: |
+    ANALYSE DE LA REMARQUE (pour organiser la réponse, pas pour la citer) :
+    - objet visé : {objet}
+    - attendu du porteur de projet : {acte}
+    - points précis : {aspects}
+    - thèmes invoqués : {motifs}
+    - ce que le dossier doit établir : {demontrer}

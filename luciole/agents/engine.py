@@ -48,6 +48,11 @@ class State:
     extracted: dict[str, dict] = field(default_factory=dict)
     #: Questions de recherche composées (outil ``compose``).
     questions: list[str] = field(default_factory=list)
+    #: Dossier retenu par ``filter`` et ses documents, dans l'ordre du profil.
+    dossier_id: str | None = None
+    documents: list = field(default_factory=list)
+    #: Dossiers comparables retenus par ``aggregate``.
+    comparables: list[str] = field(default_factory=list)
     latest: Answer | None = None
     best: Answer | None = None
     count: int | None = None

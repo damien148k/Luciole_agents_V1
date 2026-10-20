@@ -13,7 +13,7 @@ import yaml
 
 from luciole.agents.engine import BUDGET_EXHAUSTED, LoopAgent
 from luciole.agents.tools import build_agent
-from luciole.core.profile import Loop, load_profile
+from luciole.core.profile import Loop
 from luciole.store.sqlite import Condition
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -60,7 +60,6 @@ nodes:
 """
     )
 )
-VENTES_LOOP = load_profile(ROOT / "configs" / "profiles" / "ventes").loop
 PARTIAL = GOOD + " Le devis prévoyait 27 500 euros."
 
 
@@ -181,9 +180,22 @@ def test_noeud_de_raffinement_sans_budget(env):  # noqa: F811
     assert len(result.trace["searches"]) == 1
 
 
+#: Une boucle qui emploie un outil que le moteur n'exécute pas encore.
+NOTIFY_LOOP = Loop.model_validate(
+    {
+        "name": "t",
+        "start": "prevenir",
+        "nodes": {
+            "prevenir": {"type": "notify", "default": "fin"},
+            "fin": {"type": "terminal"},
+        },
+    }
+)
+
+
 def test_outil_inconnu_refuse(env):  # noqa: F811
     with pytest.raises(ValueError, match="pas encore exécutable"):
-        agent(env, ScriptedLLM(GOOD), loop=VENTES_LOOP)
+        agent(env, ScriptedLLM(GOOD), loop=NOTIFY_LOOP)
 
 
 def test_mode_de_recherche_inconnu(env):  # noqa: F811
