@@ -34,9 +34,11 @@ SPEC = ChunkingSpec(size_tokens=64, overlap_pct=20, parent_size_tokens=160, max_
 class Setup:
     """Une racine copiée du corpus, un magasin et deux index neufs."""
 
-    def __init__(self, tmp_path: Path, embedder: FakeEmbedder | None = None) -> None:
+    def __init__(
+        self, tmp_path: Path, embedder: FakeEmbedder | None = None, corpus: Path | None = None
+    ) -> None:
         self.root = tmp_path / "ventes"
-        shutil.copytree(ROOT / "tests" / "corpus" / "ventes", self.root)
+        shutil.copytree(corpus or ROOT / "tests" / "corpus" / "ventes", self.root)
         self.store = MetadataStore(tmp_path / "ventes.db", VENTES)
         self.qdrant = QdrantClient(":memory:")
         self.opensearch = FakeOpenSearch()

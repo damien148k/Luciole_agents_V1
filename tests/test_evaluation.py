@@ -97,7 +97,7 @@ def test_jsonl_aller_retour(tmp_path, response):
         read_reference(path)
 
 
-def test_reglages_controles():
+def test_reglages_controles(tmp_path):
     raw = MRAE.model_dump()
     raw["reference"]["page_pattern"] = "(p"
     with pytest.raises(ValidationError, match="illisible"):
@@ -107,7 +107,7 @@ def test_reglages_controles():
     with pytest.raises(ValidationError):
         BenchSpec.model_validate(raw)
     with pytest.raises(FileNotFoundError):
-        load_bench_spec(ROOT / "configs" / "profiles" / "ventes")
+        load_bench_spec(tmp_path)  # profil sans evaluation/bench.yaml
 
 
 # --- banc d'essai sur le corpus « ventes » ----------------------------------
@@ -133,7 +133,7 @@ def bench(tmp_path):
     s.pipeline.run(s.root)
     profiles = tmp_path / "profiles"
     shutil.copytree(ROOT / "configs" / "profiles" / "ventes", profiles / "ventes")
-    (profiles / "ventes" / "evaluation").mkdir()
+    (profiles / "ventes" / "evaluation").mkdir(exist_ok=True)
     (profiles / "ventes" / "evaluation" / "bench.yaml").write_text(BENCH, encoding="utf-8")
     reference = tmp_path / "ref.jsonl"
     write_reference(

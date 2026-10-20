@@ -49,6 +49,19 @@ class MetricsSpec(StrictModel):
     part_field: str = Field(description="Champ de document qui porte le numéro de pièce (tome)")
     k: list[int] = Field(default=[1, 3, 8], min_length=1)
     page_tolerance: int = Field(default=1, ge=0, description="Écart permis entre pages")
+    part_label: str = Field(
+        default="tome", min_length=1, description="Nom d'une pièce à l'affichage"
+    )
+    part_feminine: bool = Field(
+        default=False, description="« bonne réunion citée », « bon tome cité »"
+    )
+    cite_by_pages: bool = Field(
+        default=True,
+        description=(
+            "Une page citée d'un passage compte comme une citation de sa pièce ; à couper "
+            "quand toutes les pièces ont une seule page (réunions)"
+        ),
+    )
 
     @field_validator("k")
     @classmethod
