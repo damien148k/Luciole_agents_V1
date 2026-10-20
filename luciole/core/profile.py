@@ -369,6 +369,11 @@ def _read_yaml(path: Path) -> dict:
     return data
 
 
+def read_profile(directory: str | Path) -> UseCaseProfile:
+    """Le seul ``profile.yaml`` de ``directory``, validé (sans la boucle)."""
+    return UseCaseProfile.model_validate(_read_yaml(Path(directory) / "profile.yaml"))
+
+
 def load_profile(directory: str | Path) -> ProfileBundle:
     """Charge et valide ``configs/profiles/<cas>/``.
 
@@ -376,7 +381,7 @@ def load_profile(directory: str | Path) -> ProfileBundle:
     si une clé est inconnue, un type faux ou le graphe de la boucle incohérent.
     """
     directory = Path(directory)
-    profile = UseCaseProfile.model_validate(_read_yaml(directory / "profile.yaml"))
+    profile = read_profile(directory)
     loop = Loop.model_validate(_read_yaml(directory / "loop.yaml"))
     return ProfileBundle(profile=profile, loop=loop, path=directory)
 

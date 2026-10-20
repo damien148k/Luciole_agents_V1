@@ -13,7 +13,12 @@ le post-mortem). ``/api/health`` répond pendant qu'une question est en cours.
 
 ``/api/agent/query`` fait passer la question par la boucle du cas d'usage
 (``loop.yaml``) ; sa réponse est celle de ``/api/rag/query`` plus le chemin
-suivi, le nœud d'arrêt et les règles qui ont matché.
+suivi, le nœud d'arrêt et les règles qui ont matché. La boucle est relue à
+chaque question : une boucle modifiée sert dès la question suivante, sans
+redémarrer ni recharger les modèles ; une boucle invalide est refusée (422).
+
+``/`` ouvre le chat (``luciole/ui/``), servi par l'API elle-même : aucune
+ressource n'est demandée à Internet.
 
     uv run --extra embed uvicorn luciole.api.app:app --port 8000
 """
@@ -27,11 +32,13 @@ from pathlib import Path
 from typing import Literal
 
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 
 from luciole.agents.engine import LoopAgent
 from luciole.agents.tools import build_agent
-from luciole.core.profile import Loop, load_profile
+from luciole.core.profile import Loop, load_profile, read_profile
 from luciole.core.versions import Versions
 from luciole.generation.answer import Answerer
 from luciole.generation.trace import JsonlTracer
@@ -77,6 +84,14 @@ class QueryResponse(BaseModel):
     guards: dict
 
 
+class UseCase(BaseModel):
+    name: str
+    title: str
+    description: str
+    loop: str | None = Field(description="nom de la boucle, absent si elle est invalide")
+    loop_error: str | None = None
+
+
 class AgentRule(BaseModel):
     node: str
     when: str
@@ -92,6 +107,7 @@ class AgentResponse(QueryResponse):
 
 
 PROFILES_DIR = Path(__file__).resolve().parents[2] / "configs" / "profiles"
+UI_DIR = Path(__file__).resolve().parents[1] / "ui"
 
 
 def create_app(
@@ -100,16 +116,19 @@ def create_app(
     tracer: JsonlTracer | None = None,
     use_cases: Callable[[], list[str]] | None = None,
     loops: Callable[[str], Loop] | None = None,
+    describe: Callable[[str], dict] | None = None,
 ) -> FastAPI:
     """``answerer_factory(cas)`` construit l'Answerer d'un cas d'usage (vrais
-    modèles en production, doublures en test) ; ``loops(cas)`` donne sa boucle
-    (par défaut ``configs/profiles/<cas>/loop.yaml``)."""
+    modèles en production, doublures en test) ; ``loops(cas)`` lit sa boucle
+    (par défaut ``configs/profiles/<cas>/loop.yaml``), appelée à chaque
+    question ; ``describe(cas)`` donne son titre et sa description."""
     app = FastAPI(title="Luciole", version=Versions().app)
     answerers: dict[str, Answerer] = {}
     agents: dict[str, LoopAgent] = {}
     worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="luciole-answer")
     tracer = tracer or JsonlTracer()
     loops = loops or (lambda use_case: load_profile(PROFILES_DIR / use_case).loop)
+    describe = describe or _describe
 
     def answerer_of(use_case: str) -> Answerer:
         if use_case not in answerers:
@@ -120,8 +139,10 @@ def create_app(
         return answerers[use_case]
 
     def agent_of(use_case: str, answerer: Answerer) -> LoopAgent:
-        if use_case not in agents:
-            agents[use_case] = build_agent(loops(use_case), answerer, tracer=answerer.tracer)
+        """La boucle relue ; l'agent n'est reconstruit que si elle a changé."""
+        loop = loops(use_case)
+        if use_case not in agents or agents[use_case].loop != loop:
+            agents[use_case] = build_agent(loop, answerer, tracer=answerer.tracer)
         return agents[use_case]
 
     def answer(request: QueryRequest, agent: bool) -> dict:  # toujours dans le fil de travail
@@ -141,6 +162,26 @@ def create_app(
     @app.post("/api/agent/query", response_model=AgentResponse)
     async def agent_query(request: QueryRequest) -> dict:
         return await asyncio.get_running_loop().run_in_executor(worker, answer, request, True)
+
+    @app.get("/api/use-cases", response_model=list[UseCase])
+    def list_use_cases() -> list[dict]:
+        """Les cas d'usage, pour le choix du chat ; une boucle invalide est
+        signalée, le cas reste interrogeable par le RAG seul."""
+        out = []
+        for name in use_cases() if use_cases else sorted(answerers):
+            item = {"name": name, "loop": None, "loop_error": None} | describe(name)
+            try:
+                item["loop"] = loops(name).name
+            except (OSError, ValueError) as e:
+                item["loop_error"] = str(e)
+            out.append(item)
+        return out
+
+    @app.get("/", include_in_schema=False)
+    def home() -> RedirectResponse:
+        return RedirectResponse("/ui/chat.html")
+
+    app.mount("/ui", StaticFiles(directory=UI_DIR), name="ui")
 
     @app.get("/api/health")
     def health() -> dict:
@@ -167,6 +208,11 @@ def create_app(
         return found
 
     return app
+
+
+def _describe(use_case: str) -> dict:
+    profile = read_profile(PROFILES_DIR / use_case)
+    return {"title": profile.title, "description": profile.description}
 
 
 def _production_app() -> FastAPI:  # pragma: no cover - vrais modèles et services

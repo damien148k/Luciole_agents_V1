@@ -25,7 +25,8 @@
                                       Banc d'essai sur un jeu de référence : bon tome, bonne page, MRR ;
                                       avec -Answer, le LLM répond aussi (esquives, verdicts) ; avec -Agent,
                                       la réponse passe par la boucle. Deux passages (-Runs pour en changer).
-  .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query, /api/agent/query).
+  .\DEV.ps1 -Action api               Lance l'API et le chat sur http://127.0.0.1:8000 (POST /api/rag/query,
+                                      /api/agent/query ; le chat s'ouvre dans le navigateur à cette adresse).
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
 #>
@@ -161,7 +162,7 @@ switch ($Action) {
     }
     "api" {
         Ensure-Uv
-        Write-Step "API sur http://127.0.0.1:8000 (Ctrl+C pour arrêter)"
+        Write-Step "Chat et API sur http://127.0.0.1:8000 (Ctrl+C pour arrêter)"
         uv run --extra embed uvicorn luciole.api.app:app --host 127.0.0.1 --port 8000
     }
     "smoke" {
