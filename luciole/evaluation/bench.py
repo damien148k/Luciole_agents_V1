@@ -56,6 +56,8 @@ class ItemScore:
     given_part: bool | None = None
     #: Nombre de passages donnés au LLM.
     given: int | None = None
+    #: Pièces nommées dans le texte de la réponse (« Tome 4 », « reunion-3 »).
+    named_parts: list[str] = field(default_factory=list)
     #: Questions de recherche composées par la boucle (avec ``--agent``).
     questions: list[str] = field(default_factory=list)
     answer: str | None = None
@@ -94,14 +96,20 @@ def score_passages(
     return score
 
 
-def cites_part(answer, item: ReferenceItem, reference: ReferenceSpec, parts: list) -> bool:
-    """La réponse renvoie à une pièce attendue : « Tome N » dans le texte, ou
-    une page citée d'un passage de cette pièce."""
+def named_parts(text: str, reference: ReferenceSpec) -> list[str]:
+    """Pièces nommées dans un texte (« Tome 4 », « reunion-3.transcript.md »)."""
+    return sorted({str(int(n)) for n in re.findall(reference.part_pattern, text, re.I)}, key=int)
+
+
+def cites_part(
+    answer, item: ReferenceItem, reference: ReferenceSpec, parts: list, by_pages: bool = True
+) -> bool:
+    """La réponse renvoie à une pièce attendue : nommée dans le texte, ou (si
+    ``by_pages``) une page citée d'un passage de cette pièce."""
     wanted = {e.part for e in item.expected}
-    named = {str(int(n)) for n in re.findall(reference.part_pattern, answer.answer, re.I)}
-    if named & wanted:
+    if set(named_parts(answer.answer, reference)) & wanted:
         return True
-    return any(
+    return by_pages and any(
         c["cited"] and part in wanted for c, part in zip(answer.citations(), parts, strict=True)
     )
 
@@ -136,8 +144,11 @@ def run_once(items, retriever, store, spec: BenchSpec, answerer=None, log=print)
             score.answer = answer.answer
             score.given = len(parts)
             score.questions = composed_questions(answer.trace)
+            score.named_parts = named_parts(answer.answer, spec.reference)
             if item.expected:
-                score.cited_part = cites_part(answer, item, spec.reference, parts)
+                score.cited_part = cites_part(
+                    answer, item, spec.reference, parts, spec.metrics.cite_by_pages
+                )
                 score.given_part = bool({e.part for e in item.expected} & set(parts))
         score.seconds = round(time.perf_counter() - started, 2)
         scores.append(score)
@@ -189,18 +200,20 @@ def noise(runs: list[list[ItemScore]], metrics: MetricsSpec) -> dict:
 
 def table(summary: dict, metrics: MetricsSpec, baseline: dict[str, str]) -> str:
     n = summary["avec_renvoi"]
+    part, e = metrics.part_label, "e" if metrics.part_feminine else ""
+    right = f"bon{'ne' if e else ''} {part}"
     lines = [f"Remarques : {summary['remarques']} (dont {n} avec renvoi aux pièces)"]
     for k in metrics.k:
         lines.append(
-            f"  bon tome @{k} : {summary[f'bon_tome@{k}']}/{n}"
+            f"  {right} @{k} : {summary[f'bon_tome@{k}']}/{n}"
             f"   bonne page @{k} : {summary[f'bonne_page@{k}']}/{n}"
         )
-    lines.append(f"  MRR tome : {summary['mrr_tome']}")
+    lines.append(f"  MRR {part} : {summary['mrr_tome']}")
     if "esquives" in summary:
         v = summary["verdicts"]
         lines.append(f"  esquives : {summary['esquives']}/{summary['remarques']}")
-        lines.append(f"  tome fourni au LLM : {summary['tome_fourni']}/{n}")
-        lines.append(f"  tome cité dans la réponse : {summary['tome_cite']}/{n}")
+        lines.append(f"  {part} fourni{e} au LLM : {summary['tome_fourni']}/{n}")
+        lines.append(f"  {part} cité{e} dans la réponse : {summary['tome_cite']}/{n}")
         lines.append(
             f"  verdicts : {v['SUFFISANT']} suffisant, {v['PARTIEL']} partiel, "
             f"{v['INSUFFISANT']} insuffisant"

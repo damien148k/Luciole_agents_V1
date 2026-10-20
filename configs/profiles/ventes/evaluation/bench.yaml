@@ -1,0 +1,21 @@
+# Banc d'essai « ventes » : 10 dossiers commerciaux fictifs
+# (evaluation/ventes/dossiers) et leur jeu de référence
+# (evaluation/ventes/reference.jsonl). Une « pièce » est une réunion : la
+# réponse doit citer les réunions qui expliquent l'issue du dossier.
+reference:
+  # Lecture de réponses DOCX (outil reference) : sans objet ici, le jeu de
+  # référence est écrit à la main.
+  remark_pattern: '^\s*Question\s*(\d+)\s*$'
+  # « reunion-3.transcript.md » comme « réunion 3 ».
+  part_pattern: 'r[ée]union[-_ ]*(\d+)'
+  page_pattern: '\bp\.?\s*(\d{1,4})'
+metrics:
+  part_field: numero_reunion
+  part_label: réunion
+  part_feminine: true
+  k: [1, 3]
+  # Une réunion fait une page : la page citée ne dit pas quelle réunion.
+  page_tolerance: 0
+  cite_by_pages: false
+baseline:
+  source: aucune (premier banc « ventes », étape 5)
