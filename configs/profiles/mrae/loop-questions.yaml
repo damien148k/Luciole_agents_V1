@@ -1,0 +1,88 @@
+# Boucle MRAe avec questions composées (étape 5b), gardée hors service : le
+# banc du 2026-10-20 la donne au niveau de la boucle simple (loop.yaml) sur le
+# bon tome cité, pour deux fois plus de temps (docs/JOURNAL.md, étape 5). Pour
+# l'essayer, la copier sur loop.yaml. Elle reste vérifiée par les tests.
+#
+# Elle reprend la chaîne « query2 » de V5. Le LLM analyse
+# d'abord la remarque (objet, aspects, thèmes) en JSON validé ; le code en tire
+# au plus 3 questions de recherche ciblées (gabarits de prompts.yaml) ; la
+# réponse est rédigée sur l'ensemble des passages trouvés, avec l'analyse en
+# cadrage. Une analyse invalide n'est pas devinée : la boucle retombe sur la
+# recherche directe de l'étape 5a. Une passe élargie au plus, bornée en code.
+#
+# Champs lisibles par les règles : verdict, confidence, evasive, count,
+# refinements_left, steps_left, step (voir luciole/agents/rules.py).
+name: mrae
+description: Analyser la remarque, chercher par questions ciblées, rédiger une réponse sourcée, élargir une fois si elle est faible.
+start: analyser
+max_steps: 10
+max_refinements: 1
+on_budget: reponse
+nodes:
+  analyser:
+    type: extract
+    description: Le LLM analyse la remarque (objet, type, attendu, aspects, thèmes).
+    params: {schema: analyse_remarque}
+    rules:
+      - when: "count == 0"
+        then: rechercher
+        reason: Analyse non conforme au schéma, recherche directe
+    default: composer
+  composer:
+    type: compose
+    description: Questions de recherche tirées de l'analyse, sans LLM.
+    params:
+      from: analyse_remarque
+      first: "objet_{type_objet}"
+      fallback: objet_etude
+      each: {aspects: aspect, motifs: motif}
+      max_questions: 3
+    default: rechercher_questions
+  rechercher_questions:
+    type: retrieve
+    description: Recherche de la remarque puis de chaque question, résultats entrelacés.
+    params: {per: question}
+    rules:
+      - when: "count == 0"
+        then: sans_reponse
+        reason: Aucun passage dans le dossier
+    default: rediger
+  rechercher:
+    type: retrieve
+    description: Recherche hybride de la seule remarque (repli sans analyse).
+    rules:
+      - when: "count == 0"
+        then: sans_reponse
+        reason: Aucun passage dans le dossier
+    default: rediger
+  rediger:
+    type: synthesize
+    description: Réponse rédigée à partir des passages, cadrée par l'analyse, gardes de l'étape 4.
+    params: {framing: analyse_remarque}
+    default: verdict
+  verdict:
+    type: verdict
+    description: Garde la meilleure réponse rédigée (verdict, puis confiance).
+    rules:
+      - when: "verdict != 'SUFFISANT' and refinements_left > 0"
+        then: elargir
+        reason: Réponse faible ou esquive, une passe élargie est permise
+      - when: "verdict == 'INSUFFISANT'"
+        then: sans_reponse
+        reason: Toujours insuffisante après la passe élargie
+    default: reponse
+  elargir:
+    type: retrieve
+    description: Passe élargie (plus de candidats) sur la remarque et ses questions, comptée comme raffinement.
+    params: {mode: deep, per: question, refine: true}
+    rules:
+      - when: "count == 0"
+        then: verdict
+        reason: La passe élargie ne trouve rien de plus
+    default: rediger
+  reponse:
+    type: terminal
+    description: Réponse sourcée rendue à l'utilisateur.
+  sans_reponse:
+    type: terminal
+    description: Le dossier ne permet pas de répondre ; la réponse le dit.

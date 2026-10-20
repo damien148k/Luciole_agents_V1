@@ -97,6 +97,8 @@ answer: |
   REMARQUE DE L'AUTORITÉ ENVIRONNEMENTALE :
   {question}
 
+  {framing}
+
   Réponds uniquement à partir des extraits. Donne les éléments concrets
   qu'ils contiennent (noms, valeurs, niveaux, pages).
   Cite chaque élément par le titre court du document et la page.
@@ -106,3 +108,99 @@ answer: |
 no_results: |
   Aucun extrait du dossier ne correspond à cette remarque. Vérifier que le
   dossier est indexé, ou reformuler la remarque avec les termes de l'étude.
+
+# -----------------------------------------------------------------------------
+# Boucle (étape 5b) : analyse de la remarque, questions de recherche, cadrage.
+# Repris de V5 (prompts.yaml 5.6, analyse et gabarits de query2), sans les
+# « items » (champ jugé instable dans V5) ni la table items_par_theme.
+# -----------------------------------------------------------------------------
+extract:
+  analyse_remarque:
+    system: |
+      Tu analyses des demandes adressées au porteur d'un projet soumis à
+      étude d'impact (remarques d'une autorité environnementale). Tu réponds
+      uniquement par un objet JSON valide, sans commentaire ni balise.
+    prompt: |
+      Demande :
+      """
+      {question}
+      """
+
+      Identifie, avec les mots de la demande :
+      - "objet" : la partie du dossier sur laquelle porte concrètement la
+        demande (une étude, une analyse, un inventaire, une justification,
+        une mesure, un élément du projet, un document, une carte...). Un
+        syntagme nominal court, sans verbe. Quand la demande porte sur
+        plusieurs parties, retenir celle qu'elle vise en premier ; les autres
+        deviennent des aspects. L'objet est une chose du dossier, jamais
+        l'action réclamée : « évaluer les impacts de X » ou « justifier X »
+        ont pour objet X.
+      - "type_objet" : "comparaison" dès que l'objet consiste à comparer ou
+        choisir entre options (variantes, scénarios, sites, implantations) ;
+        "etude" pour une étude du milieu ou des effets qui ne compare pas
+        d'options (inventaire, état initial, évaluation d'impacts, suivi,
+        méthode) ; "mesure" (évitement, réduction, compensation,
+        accompagnement, suivi, engagement, modalité de travaux) ; "element"
+        (un élément du projet : ouvrage, raccordement, accès, terres,
+        matériaux, équipement) ; "forme" (présentation du dossier : cartes,
+        figures, photomontages, résumé non technique, pagination, structure).
+      - "acte" : ce que la demande attend du porteur de projet, en un groupe
+        verbal court repris de la demande (compléter, actualiser, justifier,
+        évaluer, préciser, intégrer, démontrer...), avec son complément.
+      - "aspects" : les points précis que la demande pose sur l'objet (ce
+        qu'il faut déterminer, vérifier, préciser ou produire), un par
+        élément, avec les mots de la demande ; liste vide s'il n'y en a pas.
+        Un thème environnemental n'est pas un aspect.
+      - "motifs" : les thèmes environnementaux invoqués (milieux, espèces,
+        paysage, patrimoine, bruit, eau, sols...), un par élément, réduits
+        au nom du thème tel qu'écrit dans la demande. Un terme générique
+        (« environnement », « milieux ») n'est pas un motif. Liste vide si
+        la demande n'en invoque aucun.
+      - "demontrer" : ce que le dossier doit établir pour que la demande soit
+        satisfaite, en une phrase.
+
+      N'invente ni sous-thème, ni aspect, ni objet absent de la demande.
+    fields:
+      objet: string
+      type_objet: [comparaison, etude, mesure, element, forme]
+      acte: string
+      aspects: list
+      motifs: list
+      demontrer: string
+
+# Questions de recherche (outil compose) : une pour l'objet selon son type,
+# une par aspect, une par motif. Elles nomment des rubriques standard d'une
+# étude d'impact, jamais des contenus.
+questions:
+  objet_comparaison: >-
+    Que présente le dossier concernant « {objet} » : les options étudiées, les
+    critères de comparaison et la justification de l'option retenue ?
+  objet_etude: >-
+    Que présente le dossier concernant « {objet} » : méthode et protocole
+    (périodes, aires d'étude, sources de données), résultats obtenus et
+    niveaux d'enjeu retenus ?
+  objet_mesure: >-
+    Que présente le dossier concernant « {objet} » : contenu de la mesure,
+    modalités et calendrier de mise en œuvre, engagements du porteur de
+    projet, suivi de son efficacité ?
+  objet_element: >-
+    Que présente le dossier concernant « {objet} » : description, modalités de
+    réalisation, localisation, impacts identifiés et mesures prévues ?
+  objet_forme: >-
+    Que contient le dossier concernant « {objet} » : quels documents,
+    sections, cartes ou figures y correspondent, et que présentent-ils ?
+  aspect: >-
+    Concernant « {objet} », que dit le dossier sur le point suivant : {aspect} ?
+  motif: >-
+    Quels sont les impacts du projet concernant « {motif} » : état initial,
+    impacts bruts, mesures d'évitement et de réduction, impact résiduel ?
+
+# Cadrage ajouté à la rédaction quand l'analyse a réussi ({framing} du
+# gabarit answer).
+framing: |
+  ANALYSE DE LA REMARQUE (pour organiser la réponse, pas pour la citer) :
+  - objet visé : {objet}
+  - attendu du porteur de projet : {acte}
+  - points précis : {aspects}
+  - thèmes invoqués : {motifs}
+  - ce que le dossier doit établir : {demontrer}

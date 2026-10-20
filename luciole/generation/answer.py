@@ -164,9 +164,11 @@ class Answerer:
             **extra,
         }
 
-    def _write(self, question: str, passages: Sequence[Passage], retry: bool = False):
+    def _write(
+        self, question: str, passages: Sequence[Passage], retry: bool = False, framing: str = ""
+    ):
         context, used = format_passages(passages, self.budget)
-        prompt = self.prompts.render_answer(question, context)
+        prompt = self.prompts.render_answer(question, context, framing)
         completion = self.llm.generate(self.prompts.system, prompt, options=self.llm_options(retry))
         return completion, used
 
@@ -223,9 +225,12 @@ class Answerer:
         result = self._finalize(question, trace_id, completion, used, evasive, note)
         return self._finish(result, searches, steps, started)
 
-    def draft(self, question: str, passages: Sequence[Passage]) -> tuple[Answer, list[dict]]:
+    def draft(
+        self, question: str, passages: Sequence[Passage], *, framing: str = ""
+    ) -> tuple[Answer, list[dict]]:
         """Une rédaction sur des passages donnés, sans passe élargie : la boucle
-        de l'étape 5 décide elle-même d'élargir. Mêmes gardes que ``answer``.
+        de l'étape 5 décide elle-même d'élargir. Mêmes gardes que ``answer`` ;
+        ``framing`` (cadrage tiré de l'analyse) va dans ``{framing}`` du gabarit.
         Rend la réponse (sans trace écrite) et le détail des appels au LLM."""
         steps: list[dict] = []
         trace_id = uuid.uuid4().hex
@@ -235,10 +240,11 @@ class Answerer:
         def note(kind: str, completion: Completion, used: Sequence[Passage]) -> None:
             steps.append(_step(kind, completion, used))
 
-        completion, used = self._write(question, passages)
+        completion, used = self._write(question, passages, framing=framing)
         note("rédaction", completion, used)
         evasive = self._evasive(completion.text)
-        return self._finalize(question, trace_id, completion, used, evasive, note), steps
+        result = self._finalize(question, trace_id, completion, used, evasive, note, framing)
+        return result, steps
 
     def empty(self, question: str, trace_id: str) -> Answer:
         """Aucun passage : la réponse ``no_results`` du profil, sans appel au LLM."""
@@ -251,14 +257,16 @@ class Answerer:
             guards=GuardReport(evasive=True),
         )
 
-    def _finalize(self, question, trace_id, completion, used, evasive, note) -> Answer:
+    def _finalize(
+        self, question, trace_id, completion, used, evasive, note, framing: str = ""
+    ) -> Answer:
         """Gardes 2 et 3 puis verdict et confiance, sur la rédaction retenue."""
         g = self.profile.generation.guards
         report = GuardReport(evasive=evasive)
         # 2. tronquée ou dégénérée -> une relance, gardée si elle est propre
         truncated, degenerate = completion.truncated, self._degenerate(completion.text)
         if (truncated or degenerate) and g.retry_on_loop:
-            again, used3 = self._write(question, used, retry=True)
+            again, used3 = self._write(question, used, retry=True, framing=framing)
             note("relance", again, used3)
             if not (again.truncated or self._degenerate(again.text) or self._evasive(again.text)):
                 completion, used, truncated, degenerate = again, used3, False, False

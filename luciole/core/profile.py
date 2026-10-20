@@ -35,6 +35,7 @@ ToolName = Literal[
     "filter",  # magasin structuré : sélectionner des dossiers/documents
     "aggregate",  # magasin structuré : compter, grouper
     "extract",  # LLM à sortie JSON validée contre un schéma
+    "compose",  # questions de recherche tirées d'une extraction (gabarits du profil)
     "compare",  # mise en regard déterministe de deux ensembles
     "synthesize",  # LLM : rédaction à partir d'extraits cités
     "verdict",  # décision déterministe SUFFISANT / PARTIEL / INSUFFISANT

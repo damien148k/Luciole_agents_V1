@@ -1,6 +1,7 @@
 # Boucle MRAe, étape 5a : le RAG de l'étape 4 décomposé en nœuds, avec un
-# raffinement borné en code (une passe élargie au plus). L'analyse de la
-# remarque et les questions composées de V5 (query2) arrivent à l'étape 5b.
+# raffinement borné en code (une passe élargie au plus). La variante avec
+# analyse de la remarque et questions composées (query2 de V5) est dans
+# loop-questions.yaml : même score au banc, deux fois plus lente.
 #
 # Champs lisibles par les règles : verdict, confidence, evasive, count,
 # refinements_left, steps_left, step (voir luciole/agents/rules.py).

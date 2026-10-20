@@ -24,6 +24,7 @@ from luciole.evaluation.spec import BenchSpec, load_bench_spec
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
+from test_agent_mrae import ANALYSIS_JSON  # noqa: E402
 from test_answer import EVASIVE, GOOD, ScaledReranker, ScriptedLLM  # noqa: E402
 from test_index_pipeline import Setup  # noqa: E402
 
@@ -208,6 +209,9 @@ def test_banc_reponses_et_bruit(bench):
     out, rep = bench("--answer", "--runs", "2", "--only", "Dubois-R1", llm=llm)
     first, second = (r["summary"] for r in rep["runs"])
     assert first["remarques"] == 1 and first["esquives"] == 0 and first["tome_cite"] == 1
+    assert first["tome_fourni"] == 1 and "tome fourni au LLM : 1/1" in out
+    item = rep["runs"][0]["items"][0]
+    assert item["given_part"] is True and item["given"] >= 1 and item["questions"] == []
     assert second["esquives"] == 1 and second["verdicts"]["INSUFFISANT"] == 1
     assert rep["noise"]["remarques_changeantes"] == ["Dubois-R1"]
     assert "esquives : 0/1" in out and "Plancher de bruit : 1 remarque(s)" in out
@@ -217,14 +221,18 @@ def test_banc_reponses_et_bruit(bench):
 def test_banc_par_la_boucle(bench, tmp_path):
     """--agent : la boucle MRAe répond ; une esquive est rattrapée par sa passe
     élargie, comme dans le RAG seul."""
-    loop = ROOT / "configs" / "profiles" / "mrae" / "loop.yaml"
-    shutil.copy(loop, tmp_path / "profiles" / "ventes" / "loop.yaml")
-    llm = ScriptedLLM(EVASIVE, GOOD)
+    mrae = ROOT / "configs" / "profiles" / "mrae"  # la boucle à questions et ses prompts
+    shutil.copy(mrae / "loop-questions.yaml", tmp_path / "profiles" / "ventes" / "loop.yaml")
+    shutil.copy(mrae / "prompts.yaml", tmp_path / "profiles" / "ventes")
+    llm = ScriptedLLM(ANALYSIS_JSON, EVASIVE, GOOD)
     out, rep = bench("--agent", "--runs", "1", "--only", "Dubois-R1", llm=llm)
     summary = rep["runs"][0]["summary"]
     assert rep["mode"] == "boucle" and "(boucle)" in out
     assert summary["esquives"] == 0 and summary["verdicts"]["SUFFISANT"] == 1
-    assert summary["tome_cite"] == 1 and len(llm.calls) == 2
+    assert summary["tome_cite"] == 1 and len(llm.calls) == 3  # analyse, deux rédactions
+    assert summary["tome_fourni"] == 1
+    questions = rep["runs"][0]["items"][0]["questions"]
+    assert 1 <= len(questions) <= 3 and questions[0].startswith("Que présente le dossier")
     assert rep["models"]["llm"] == "llm-scripte"
 
 

@@ -21,10 +21,10 @@
                                       Réponse sourcée par le LLM local (Ollama lancé), verdict et trace.
   .\DEV.ps1 -Action agent -UseCase mrae -Query "question"
                                       Réponse par la boucle du cas d'usage (loop.yaml) : chemin, règles, arrêt.
-  .\DEV.ps1 -Action bench -UseCase mrae -Reference <fichier.jsonl> [-Answer] [-Agent]
+  .\DEV.ps1 -Action bench -UseCase mrae -Reference <fichier.jsonl> [-Answer] [-Agent] [-Runs N]
                                       Banc d'essai sur un jeu de référence : bon tome, bonne page, MRR ;
                                       avec -Answer, le LLM répond aussi (esquives, verdicts) ; avec -Agent,
-                                      la réponse passe par la boucle. Deux passages.
+                                      la réponse passe par la boucle. Deux passages (-Runs pour en changer).
   .\DEV.ps1 -Action api               Lance l'API sur http://127.0.0.1:8000 (POST /api/rag/query, /api/agent/query).
   .\DEV.ps1 -Action smoke             Test de fumée dans l'image Docker avec le GPU (machine, modèles,
                                       PyTorch, embedding, Qdrant et OpenSearch). Construit l'image.
@@ -43,6 +43,8 @@ param(
     [switch]$Answer,
     # Pour -Action bench : répondre par la boucle du cas d'usage plutôt que par le RAG seul.
     [switch]$Agent,
+    # Pour -Action bench : nombre de passages (défaut 2).
+    [int]$Runs = 0,
     # Pour -Action index, watch, search et smoke : profil matériel (défaut : celui de cette machine).
     [string]$Hardware
 )
@@ -153,6 +155,7 @@ switch ($Action) {
         if ($Hardware) { $extra += @("--hardware", $Hardware) }
         if ($Answer) { $extra += "--answer" }
         if ($Agent) { $extra += "--agent" }
+        if ($Runs -gt 0) { $extra += @("--runs", $Runs) }
         uv run --extra embed python -m luciole.evaluation.bench --profile $UseCase --reference $Reference @extra
         if ($LASTEXITCODE -ne 0) { throw "Banc d'essai en échec : voir le message ci-dessus" }
     }

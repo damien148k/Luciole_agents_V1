@@ -17,7 +17,7 @@ from luciole.generation.trace import JsonlTracer
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
-from test_agent import MRAE_LOOP, VENTES_LOOP  # noqa: E402
+from test_agent import RAG_LOOP, VENTES_LOOP  # noqa: E402
 from test_answer import GOOD, QUESTION, ScriptedLLM, answerer  # noqa: E402
 from test_index_pipeline import Setup  # noqa: E402
 
@@ -142,7 +142,7 @@ def api(tmp_path):
             factory,
             tracer=tracer,
             use_cases=lambda: ["mrae", "ventes"],
-            loops=lambda use_case: MRAE_LOOP if use_case == "mrae" else VENTES_LOOP,
+            loops=lambda use_case: RAG_LOOP if use_case == "mrae" else VENTES_LOOP,
         )
     )
     return client, built
