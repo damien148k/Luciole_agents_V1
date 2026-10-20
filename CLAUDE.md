@@ -33,7 +33,7 @@ Plateforme souveraine et hors ligne de **boucles agentiques par cas d'usage**, d
 .\DEV.ps1 -Action ask -UseCase ventes -Query "question"     # réponse sourcée (Ollama), verdict, trace
 .\DEV.ps1 -Action agent -UseCase mrae -Query "question"     # réponse par la boucle (chemin, règles, arrêt)
 .\DEV.ps1 -Action api                                       # API http://127.0.0.1:8000
-.\DEV.ps1 -Action bench -UseCase mrae -Reference <jsonl> [-Answer] [-Agent]  # banc (bon tome, page, esquives)
+.\DEV.ps1 -Action bench -UseCase mrae -Reference <jsonl> [-Answer] [-Agent] [-Runs N]  # banc (bon tome, page, esquives)
 .\DEV.ps1 -Action smoke            # test de fumée dans l'image Docker (GPU, modèles, services)
 ```
 
