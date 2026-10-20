@@ -1,4 +1,4 @@
-"""Boucle MRAe de l'étape 5b (``configs/profiles/mrae/loop.yaml`` et
+"""Boucle MRAe de l'étape 5b (``configs/profiles/mrae/loop-questions.yaml`` et
 ``prompts.yaml``) : analyse de la remarque en JSON validé, questions de
 recherche composées par le code, recherche par question, rédaction cadrée.
 
@@ -11,11 +11,12 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+import yaml
 from pydantic import ValidationError
 
 from luciole.agents.engine import State
 from luciole.agents.tools import ComposeTool, build_agent, check_references, interleave
-from luciole.core.profile import load_profile
+from luciole.core.profile import Loop
 from luciole.generation.answer import Answerer
 from luciole.generation.prompts import PromptSet, load_prompts
 from luciole.retrieval.hybrid import HybridRetriever
@@ -36,7 +37,9 @@ from test_answer import (  # noqa: E402
 )
 
 MRAE_DIR = ROOT / "configs" / "profiles" / "mrae"
-MRAE_LOOP = load_profile(MRAE_DIR).loop
+MRAE_LOOP = Loop.model_validate(
+    yaml.safe_load((MRAE_DIR / "loop-questions.yaml").read_text(encoding="utf-8"))
+)
 MRAE_PROMPTS = load_prompts(MRAE_DIR)
 ANALYSIS = {
     "objet": "budget de l'atelier",

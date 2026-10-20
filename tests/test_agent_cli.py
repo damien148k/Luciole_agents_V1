@@ -18,8 +18,9 @@ def test_ligne_de_commande(tmp_path, capsys, monkeypatch):
     s.pipeline.run(s.root)
     profiles = tmp_path / "profiles"
     shutil.copytree(ROOT / "configs" / "profiles" / "ventes", profiles / "ventes")
-    for name in ("loop.yaml", "prompts.yaml"):  # la boucle MRAe et ses prompts
-        shutil.copy(ROOT / "configs" / "profiles" / "mrae" / name, profiles / "ventes")
+    mrae = ROOT / "configs" / "profiles" / "mrae"  # la boucle à questions et ses prompts
+    shutil.copy(mrae / "loop-questions.yaml", profiles / "ventes" / "loop.yaml")
+    shutil.copy(mrae / "prompts.yaml", profiles / "ventes")
     monkeypatch.setenv("LUCIOLE_DATA_DIR", str(tmp_path / "data"))
     llm = ScriptedLLM(ANALYSIS_JSON, EVASIVE, GOOD)
     try:

@@ -221,8 +221,9 @@ def test_banc_reponses_et_bruit(bench):
 def test_banc_par_la_boucle(bench, tmp_path):
     """--agent : la boucle MRAe répond ; une esquive est rattrapée par sa passe
     élargie, comme dans le RAG seul."""
-    for name in ("loop.yaml", "prompts.yaml"):  # la boucle MRAe et ses prompts
-        shutil.copy(ROOT / "configs" / "profiles" / "mrae" / name, tmp_path / "profiles" / "ventes")
+    mrae = ROOT / "configs" / "profiles" / "mrae"  # la boucle à questions et ses prompts
+    shutil.copy(mrae / "loop-questions.yaml", tmp_path / "profiles" / "ventes" / "loop.yaml")
+    shutil.copy(mrae / "prompts.yaml", tmp_path / "profiles" / "ventes")
     llm = ScriptedLLM(ANALYSIS_JSON, EVASIVE, GOOD)
     out, rep = bench("--agent", "--runs", "1", "--only", "Dubois-R1", llm=llm)
     summary = rep["runs"][0]["summary"]
