@@ -209,6 +209,9 @@ def test_banc_reponses_et_bruit(bench):
     out, rep = bench("--answer", "--runs", "2", "--only", "Dubois-R1", llm=llm)
     first, second = (r["summary"] for r in rep["runs"])
     assert first["remarques"] == 1 and first["esquives"] == 0 and first["tome_cite"] == 1
+    assert first["tome_fourni"] == 1 and "tome fourni au LLM : 1/1" in out
+    item = rep["runs"][0]["items"][0]
+    assert item["given_part"] is True and item["given"] >= 1 and item["questions"] == []
     assert second["esquives"] == 1 and second["verdicts"]["INSUFFISANT"] == 1
     assert rep["noise"]["remarques_changeantes"] == ["Dubois-R1"]
     assert "esquives : 0/1" in out and "Plancher de bruit : 1 remarque(s)" in out
@@ -226,6 +229,9 @@ def test_banc_par_la_boucle(bench, tmp_path):
     assert rep["mode"] == "boucle" and "(boucle)" in out
     assert summary["esquives"] == 0 and summary["verdicts"]["SUFFISANT"] == 1
     assert summary["tome_cite"] == 1 and len(llm.calls) == 3  # analyse, deux rédactions
+    assert summary["tome_fourni"] == 1
+    questions = rep["runs"][0]["items"][0]["questions"]
+    assert 1 <= len(questions) <= 3 and questions[0].startswith("Que présente le dossier")
     assert rep["models"]["llm"] == "llm-scripte"
 
 

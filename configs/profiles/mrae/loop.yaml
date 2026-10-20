@@ -1,6 +1,6 @@
 # Boucle MRAe, étape 5b : reprend la chaîne « query2 » de V5. Le LLM analyse
 # d'abord la remarque (objet, aspects, thèmes) en JSON validé ; le code en tire
-# au plus 6 questions de recherche ciblées (gabarits de prompts.yaml) ; la
+# au plus 3 questions de recherche ciblées (gabarits de prompts.yaml) ; la
 # réponse est rédigée sur l'ensemble des passages trouvés, avec l'analyse en
 # cadrage. Une analyse invalide n'est pas devinée : la boucle retombe sur la
 # recherche directe de l'étape 5a. Une passe élargie au plus, bornée en code.
@@ -31,7 +31,7 @@ nodes:
       first: "objet_{type_objet}"
       fallback: objet_etude
       each: {aspects: aspect, motifs: motif}
-      max_questions: 6
+      max_questions: 3
     default: rechercher_questions
   rechercher_questions:
     type: retrieve

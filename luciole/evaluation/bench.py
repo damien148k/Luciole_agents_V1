@@ -12,7 +12,10 @@ remarques qui ont des renvois attendus :
   pièce (à ``page_tolerance`` pages près).
 
 Avec ``--answer`` (Ollama lancé), le LLM rédige chaque réponse : esquives et
-verdicts sur toutes les remarques, **tome cité** sur celles qui ont des renvois.
+verdicts sur toutes les remarques, **tome cité** sur celles qui ont des renvois,
+et **tome fourni** : une pièce attendue figure parmi les passages donnés au LLM
+(avec ``--agent``, ce sont ceux de la boucle, questions composées comprises ;
+les mesures @k portent toujours sur la recherche de la seule remarque).
 ``--runs 2`` (défaut) refait tout deux fois : les remarques dont le résultat
 change d'un passage à l'autre donnent le plancher de bruit.
 """
@@ -49,6 +52,12 @@ class ItemScore:
     verdict: str | None = None
     evasive: bool | None = None
     cited_part: bool | None = None
+    #: Une pièce attendue figure parmi les passages donnés au LLM (avec ``--answer``).
+    given_part: bool | None = None
+    #: Nombre de passages donnés au LLM.
+    given: int | None = None
+    #: Questions de recherche composées par la boucle (avec ``--agent``).
+    questions: list[str] = field(default_factory=list)
     answer: str | None = None
 
 
@@ -97,6 +106,14 @@ def cites_part(answer, item: ReferenceItem, reference: ReferenceSpec, parts: lis
     )
 
 
+def composed_questions(trace: dict | None) -> list[str]:
+    """Les questions de l'outil ``compose`` dans la trace d'une boucle."""
+    for step in (trace or {}).get("steps", []):
+        if step.get("type") == "compose":
+            return list(step["detail"].get("questions", []))
+    return []
+
+
 def run_once(items, retriever, store, spec: BenchSpec, answerer=None, log=print) -> list[ItemScore]:
     top = max(spec.metrics.k)
     cache: dict = {}
@@ -117,8 +134,11 @@ def run_once(items, retriever, store, spec: BenchSpec, answerer=None, log=print)
             score.verdict = answer.verdict
             score.evasive = answer.guards.evasive
             score.answer = answer.answer
+            score.given = len(parts)
+            score.questions = composed_questions(answer.trace)
             if item.expected:
                 score.cited_part = cites_part(answer, item, spec.reference, parts)
+                score.given_part = bool({e.part for e in item.expected} & set(parts))
         score.seconds = round(time.perf_counter() - started, 2)
         scores.append(score)
         mark = "-" if not score.has_expected else ("ok" if score.part_rank == 1 else "··")
@@ -141,6 +161,7 @@ def summarize(scores: list[ItemScore], metrics: MetricsSpec) -> dict:
             v: sum(s.verdict == v for s in answered)
             for v in ("SUFFISANT", "PARTIEL", "INSUFFISANT")
         }
+        out["tome_fourni"] = sum(bool(s.given_part) for s in answered if s.has_expected)
         out["tome_cite"] = sum(bool(s.cited_part) for s in answered if s.has_expected)
     out["secondes"] = round(sum(s.seconds for s in scores), 1)
     return out
@@ -178,6 +199,7 @@ def table(summary: dict, metrics: MetricsSpec, baseline: dict[str, str]) -> str:
     if "esquives" in summary:
         v = summary["verdicts"]
         lines.append(f"  esquives : {summary['esquives']}/{summary['remarques']}")
+        lines.append(f"  tome fourni au LLM : {summary['tome_fourni']}/{n}")
         lines.append(f"  tome cité dans la réponse : {summary['tome_cite']}/{n}")
         lines.append(
             f"  verdicts : {v['SUFFISANT']} suffisant, {v['PARTIEL']} partiel, "
