@@ -99,3 +99,9 @@ evaluation/         # bancs d'essai retrieval et RAGAS
 - Une écriture vers Qdrant ou OpenSearch part par paquets : un gros tome d'un bloc dépasse la limite de taille de requête de Qdrant (32 Mo).
 - Ollama sur GPU ne rend pas deux fois le même texte, même à température 0 et graine fixe : un test vérifie la source, le contenu et l'absence d'esquive, jamais l'égalité mot pour mot.
 - La « confiance » est le score brut du reranker (0,01 pour une bonne réponse indirecte) : ne pas s'en servir comme seuil avant calibration.
+
+## Leçons de l'étape 5
+
+- Quand la réponse dépend d'une donnée du dossier (issue, produit), le code la lit dans le magasin et la donne au LLM en cadrage : le RAG seul esquive si elle n'est écrite dans aucun passage.
+- Le bon document fourni au LLM ne garantit pas qu'il le cite : mesurer « fourni » et « cité » séparément avant de toucher à la recherche.
+- Une boucle plus longue n'est gardée que si le banc montre un gain au-delà du bruit (MRAe : 5b à 2 h 09 pour le score de la 5a à 65 min).
