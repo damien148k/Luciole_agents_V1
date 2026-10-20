@@ -1,36 +1,58 @@
-# Boucle « analyser un dossier commercial ». Squelette de l'étape 0.
+# Boucle « analyser un dossier commercial » (étape 5c). Le code retrouve le
+# dossier et lit ses réunions dans l'ordre ; le LLM extrait les signaux de
+# chaque réunion (JSON validé) ; le code compare aux dossiers gagnés et perdus
+# du même produit ; le LLM rédige l'analyse citée.
+#
+# Champs lisibles par les règles : verdict, confidence, evasive, count,
+# refinements_left, steps_left, step (voir luciole/agents/rules.py).
 name: ventes
 description: Reconstituer la chronologie d'un dossier, extraire les signaux par réunion, comparer aux dossiers similaires, expliquer l'issue.
 start: selectionner
 max_steps: 10
+max_refinements: 0
 on_budget: analyse
 nodes:
   selectionner:
     type: filter
-    description: Retrouver le dossier demandé et ses réunions dans l'ordre.
+    description: Retrouver le dossier demandé (par son client) et lire ses réunions dans l'ordre.
+    params: {match: client, read: true, as: dossier}
     rules:
       - when: "count == 0"
         then: dossier_inconnu
+        reason: Aucun dossier, ou plusieurs, ne correspondent à la demande
     default: signaux
   signaux:
     type: extract
-    description: Pour chaque réunion, extraire objections, engagements, décideurs, prochaine étape (JSON typé).
+    description: Pour chaque réunion, objections, engagements, décideurs, prochaine étape (JSON validé).
     params: {schema: signaux_reunion, per: document}
     default: comparables
   comparables:
     type: aggregate
     description: Dossiers du même produit, gagnés et perdus, pour comparaison.
+    params: {same: [produit], field: issue, values: [gagne, perdu], as: comparables}
+    rules:
+      - when: "count == 0"
+        then: expliquer
+        reason: Aucun dossier comparable
     default: comparer
   comparer:
     type: compare
-    description: Mettre en regard les signaux du dossier et ceux des comparables.
+    description: Chercher les objections du dossier dans les dossiers comparables.
+    params: {from: signaux_reunion, fields: [objections], max_queries: 4, top_k: 2}
     default: expliquer
   expliquer:
     type: synthesize
-    description: Rédiger l'analyse citée (réunion, date) et les recommandations.
+    description: Rédiger l'analyse citée (réunion par réunion) et ce qui a décidé l'issue.
+    params:
+      framing: [dossier, signaux_reunion, comparables]
+    default: verdict
+  verdict:
+    type: verdict
+    description: Garde la réponse rédigée et son verdict.
     default: analyse
   analyse:
     type: terminal
+    description: Analyse sourcée rendue au commercial.
   dossier_inconnu:
     type: terminal
-    description: Aucun dossier ne correspond ; proposer les dossiers proches.
+    description: Aucun dossier ne correspond ; la réponse le dit.

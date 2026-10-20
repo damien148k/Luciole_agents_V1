@@ -15,13 +15,17 @@
 - ``synthesize`` : rédaction par le LLM sur les passages du dernier
   ``retrieve``, avec les gardes de l'étape 4 (relance d'une réponse tronquée
   ou qui boucle, pages et nombres hors extraits signalés) ; ``framing``
-  ajoute le cadrage du profil rempli par une extraction.
+  ajoute les cadrages du profil remplis par les notes de la boucle
+  (extractions, fiche du dossier, comparables).
 - ``verdict`` : décision déterministe ; garde la meilleure réponse rédigée
   jusqu'ici (verdict, puis confiance). Une passe élargie ne peut donc jamais
   remplacer une meilleure réponse par une moins bonne.
 
-Les outils ``filter``, ``aggregate``, ``compare`` et ``notify`` arrivent avec
-les boucles qui en ont besoin.
+- ``filter``, ``aggregate``, ``compare`` : sur le magasin structuré, sans LLM
+  (``records.py``).
+
+``extract`` avec ``per: document`` fait une extraction par document retenu par
+``filter``. ``notify`` arrivera avec la boucle qui en aura besoin.
 """
 
 from __future__ import annotations
@@ -30,10 +34,17 @@ import string
 from collections.abc import Mapping, Sequence
 
 from luciole.agents.engine import LoopAgent, State
+from luciole.agents.records import (
+    AGGREGATE_FIELDS,
+    AggregateTool,
+    CompareTool,
+    FilterTool,
+    read_document,
+)
 from luciole.core.profile import Loop
 from luciole.generation.answer import Answerer
 from luciole.generation.llm import extract
-from luciole.generation.prompts import PromptSet, as_text
+from luciole.generation.prompts import PromptSet, as_text, template_fields
 from luciole.retrieval.hybrid import Passage
 from luciole.retrieval.lot import is_secondary
 
@@ -69,29 +80,62 @@ def interleave(
 
 
 class ExtractTool:
+    """``per: request`` (défaut) : une extraction sur la demande. ``per:
+    document`` : une par document retenu par ``filter``, dans l'ordre, sur son
+    texte entier ; chaque résultat porte ``source`` (chemin) et ``rang``. Un
+    document trop long pour la fenêtre du LLM ou une sortie non conforme est
+    signalé et laissé de côté, jamais tronqué ni deviné."""
+
     def __init__(self, answerer: Answerer) -> None:
         self.answerer = answerer
+
+    def _one(self, spec, prompt: str) -> dict:
+        result = extract(
+            self.answerer.llm,
+            spec.system,
+            prompt,
+            spec.model(),
+            options=self.answerer.llm_options(),
+        )
+        return result.model_dump()
 
     def run(self, params: Mapping[str, object], state: State) -> dict:
         name = str(params.get("schema", ""))
         spec = self.answerer.prompts.extract.get(name)
         if spec is None:
             raise ValueError(f"extract : schéma « {name} » absent de prompts.yaml")
-        options = self.answerer.llm_options()
-        try:
-            result = extract(
-                self.answerer.llm,
-                spec.system,
-                spec.prompt.format(question=state.question),
-                spec.model(),
-                options=options,
+        per = params.get("per", "request")
+        if per == "request":
+            try:
+                state.extracted[name] = self._one(spec, spec.prompt.format(question=state.question))
+            except ValueError as e:
+                state.count = 0
+                return {"schema": name, "error": str(e)[:300]}
+            state.count = 1
+            return {"schema": name, "values": state.extracted[name]}
+        if per != "document":
+            raise ValueError(f"extract : per « {per} » inconnu (request ou document)")
+        store = self.answerer.retriever.store
+        values, errors = [], []
+        for rank, doc in enumerate(state.documents, start=1):
+            chunks = read_document(store, doc.document_id)
+            cost = sum(c.token_count for c in chunks)
+            if cost > self.answerer.budget:
+                errors.append({"source": doc.relative_path, "error": f"{cost} tokens, trop long"})
+                continue
+            text = "\n\n".join(c.text.strip() for c in chunks)
+            prompt = spec.prompt.format_map(
+                {"question": state.question, "document": text, "source": doc.relative_path}
             )
-        except ValueError as e:
-            state.count = 0
-            return {"schema": name, "error": str(e)[:300]}
-        state.extracted[name] = result.model_dump()
-        state.count = 1
-        return {"schema": name, "values": state.extracted[name]}
+            try:
+                values.append({"source": doc.relative_path, "rang": rank} | self._one(spec, prompt))
+            except ValueError as e:
+                errors.append({"source": doc.relative_path, "error": str(e)[:300]})
+        state.extracted[name] = values
+        state.count = len(values)
+        return {"schema": name, "documents": len(state.documents), "values": values} | (
+            {"errors": errors} if errors else {}
+        )
 
 
 class ComposeTool:
@@ -181,15 +225,23 @@ class RetrieveTool:
         }
 
 
+def framing_names(params: Mapping[str, object]) -> list[str]:
+    value = params.get("framing") or []
+    return [value] if isinstance(value, str) else [str(v) for v in value]
+
+
 class SynthesizeTool:
     def __init__(self, answerer: Answerer) -> None:
         self.answerer = answerer
 
     def run(self, params: Mapping[str, object], state: State) -> dict:
-        framing = ""
-        source = params.get("framing")
-        if source and source in state.extracted:
-            framing = self.answerer.prompts.render_framing(state.extracted[str(source)])
+        prompts = self.answerer.prompts
+        parts = [
+            prompts.render_framing(name, state.extracted[name])
+            for name in framing_names(params)
+            if name in state.extracted
+        ]
+        framing = "\n\n".join(p for p in parts if p)
         draft, calls = self.answerer.draft(state.question, state.passages, framing=framing)
         state.latest = draft
         state.generation.extend(calls)
@@ -204,10 +256,28 @@ class VerdictTool:
         return {"latest": state.latest.verdict, "kept": kept}
 
 
-def check_references(loop: Loop, prompts: PromptSet) -> None:
-    """Refuse au chargement une boucle qui nomme un schéma ou un gabarit absent
-    de ``prompts.yaml``, plutôt qu'à la première question."""
+def _notes(loop: Loop, prompts: PromptSet, dossier_fields: set[str]) -> dict[str, set[str]]:
+    """Notes que les nœuds de la boucle écrivent, avec leurs champs."""
+    notes: dict[str, set[str]] = {}
+    for node in loop.nodes.values():
+        params = node.params
+        if node.type == "extract" and params.get("schema") in prompts.extract:
+            notes[str(params["schema"])] = set(prompts.extract[str(params["schema"])].fields) | (
+                {"source", "rang"} if params.get("per") == "document" else set()
+            )
+        elif node.type == "filter":
+            notes[str(params.get("as", "dossier"))] = dossier_fields | {"dossier_id"}
+        elif node.type == "aggregate":
+            notes[str(params.get("as", "comparables"))] = set(AGGREGATE_FIELDS)
+    return notes
+
+
+def check_references(loop: Loop, prompts: PromptSet, dossier_fields=frozenset()) -> None:
+    """Refuse au chargement une boucle qui nomme un schéma, un gabarit ou un
+    cadrage absent de ``prompts.yaml``, ou un cadrage qui lit un champ que sa
+    note n'a pas, plutôt qu'à la première question."""
     problems = []
+    notes = _notes(loop, prompts, set(dossier_fields))
     for name, node in loop.nodes.items():
         params = node.params
         if node.type == "extract" and params.get("schema") not in prompts.extract:
@@ -220,11 +290,22 @@ def check_references(loop: Loop, prompts: PromptSet) -> None:
             for template in dict(params.get("each", {}) or {}).values():
                 if template not in prompts.questions:
                     problems.append(f"{name} : gabarit « {template} » absent")
-        if node.type == "synthesize" and params.get("framing"):
-            if params["framing"] not in prompts.extract:
-                problems.append(f"{name} : cadrage « {params['framing']} » sans extraction")
-            elif "{framing}" not in prompts.answer:
+        if node.type == "compare" and params.get("from") not in prompts.extract:
+            problems.append(f"{name} : extraction « {params.get('from')} » absente")
+        if node.type == "synthesize" and framing_names(params):
+            if "{framing}" not in prompts.answer:
                 problems.append(f"{name} : le gabarit answer n'emploie pas {{framing}}")
+            for note in framing_names(params):
+                if note not in notes:
+                    problems.append(f"{name} : cadrage « {note} » sans nœud qui l'écrit")
+                elif note not in prompts.framing:
+                    problems.append(f"{name} : cadrage « {note} » absent de prompts.yaml")
+                else:
+                    unknown = template_fields(prompts.framing[note]) - notes[note]
+                    if unknown:
+                        problems.append(
+                            f"{name} : cadrage « {note} » : champ(s) inconnu(s) {sorted(unknown)}"
+                        )
     if problems:
         raise ValueError(f"boucle « {loop.name} » / prompts.yaml : " + " ; ".join(problems))
 
@@ -232,6 +313,9 @@ def check_references(loop: Loop, prompts: PromptSet) -> None:
 def build_agent(loop: Loop, answerer: Answerer, *, tracer=None) -> LoopAgent:
     """La boucle d'un cas d'usage avec les outils du RAG de ce cas."""
     tools = {
+        "filter": FilterTool(answerer),
+        "aggregate": AggregateTool(answerer),
+        "compare": CompareTool(answerer),
         "extract": ExtractTool(answerer),
         "compose": ComposeTool(answerer),
         "retrieve": RetrieveTool(answerer),
@@ -249,5 +333,5 @@ def build_agent(loop: Loop, answerer: Answerer, *, tracer=None) -> LoopAgent:
         "options": answerer.llm_options(),
     }
     agent = LoopAgent(loop, tools, answerer.empty, meta=meta, tracer=tracer)
-    check_references(loop, answerer.prompts)
+    check_references(loop, answerer.prompts, set(answerer.profile.entities.dossier))
     return agent

@@ -96,9 +96,19 @@ def score_passages(
     return score
 
 
-def named_parts(text: str, reference: ReferenceSpec) -> list[str]:
-    """Pièces nommées dans un texte (« Tome 4 », « reunion-3.transcript.md »)."""
-    return sorted({str(int(n)) for n in re.findall(reference.part_pattern, text, re.I)}, key=int)
+def named_parts(text: str, reference: ReferenceSpec, dossier: str | None = None) -> list[str]:
+    """Pièces nommées dans un texte (« Tome 4 », « reunion-3.transcript.md »).
+
+    Avec ``dossier``, une pièce écrite dans le chemin d'un autre dossier
+    (« geometres-blanc/reunion-2.transcript.md », un dossier comparé) ne
+    compte pas."""
+    found = set()
+    for m in re.finditer(reference.part_pattern, text, re.I):
+        token = re.split(r"[\s\[\](),;:]", text[: m.start()])[-1]
+        if dossier is not None and "/" in token and token.rstrip("/").split("/")[-1] != dossier:
+            continue
+        found.add(str(int(m.group(1))))
+    return sorted(found, key=int)
 
 
 def cites_part(
@@ -107,7 +117,7 @@ def cites_part(
     """La réponse renvoie à une pièce attendue : nommée dans le texte, ou (si
     ``by_pages``) une page citée d'un passage de cette pièce."""
     wanted = {e.part for e in item.expected}
-    if set(named_parts(answer.answer, reference)) & wanted:
+    if set(named_parts(answer.answer, reference, item.dossier)) & wanted:
         return True
     return by_pages and any(
         c["cited"] and part in wanted for c, part in zip(answer.citations(), parts, strict=True)
@@ -135,8 +145,12 @@ def run_once(items, retriever, store, spec: BenchSpec, answerer=None, log=print)
         score = score_passages(item, result.passages, store, spec.metrics, cache)
         if answerer is not None:
             answer = answerer.answer(item.question, conditions=where)
+            # Les passages d'un autre dossier (comparables d'une boucle) ne
+            # comptent ni comme pièce fournie ni comme pièce citée.
             parts = [
                 _part_of(store, p.unit.document_id, spec.metrics.part_field, cache)
+                if p.unit.dossier_id == item.dossier
+                else None
                 for p in answer.passages
             ]
             score.verdict = answer.verdict
@@ -144,7 +158,7 @@ def run_once(items, retriever, store, spec: BenchSpec, answerer=None, log=print)
             score.answer = answer.answer
             score.given = len(parts)
             score.questions = composed_questions(answer.trace)
-            score.named_parts = named_parts(answer.answer, spec.reference)
+            score.named_parts = named_parts(answer.answer, spec.reference, item.dossier)
             if item.expected:
                 score.cited_part = cites_part(
                     answer, item, spec.reference, parts, spec.metrics.cite_by_pages

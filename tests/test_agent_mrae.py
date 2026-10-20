@@ -27,7 +27,6 @@ from test_answer import (  # noqa: E402
     CPU,
     EVASIVE,
     GOOD,
-    PROMPTS,
     QUESTION,
     VENTES,
     ScaledReranker,
@@ -226,14 +225,16 @@ def test_prompts_mrae_valides():
         "aspect",
         "motif",
     }
-    assert MRAE_PROMPTS.render_framing(ANALYSIS).startswith("ANALYSE DE LA REMARQUE")
+    assert MRAE_PROMPTS.render_framing("analyse_remarque", ANALYSIS).startswith(
+        "ANALYSE DE LA REMARQUE"
+    )
 
 
 @pytest.mark.parametrize(
     ("update", "match"),
     [
         ({"questions": {"x": "Que dit {inconnu} ?"}}, "question « x »"),
-        ({"framing": "objet : {sujet}"}, "cadrage"),
+        ({"framing": {"analyse_remarque": "objet : {sujet}"}}, "cadrage"),
         (
             {"extract": {"a": {"system": "s", "prompt": "{question} {autre}", "fields": {}}}},
             "extract",
@@ -248,7 +249,3 @@ def test_prompts_refuses_au_chargement(update, match):
     base = MRAE_PROMPTS.model_dump()
     with pytest.raises(ValidationError, match=match):
         PromptSet.model_validate(base | update)
-
-
-def test_profil_ventes_sans_extraction():
-    assert PROMPTS.extract == {} and PROMPTS.questions == {} and PROMPTS.framing == ""

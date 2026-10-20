@@ -119,3 +119,70 @@ def test_banc_ventes_de_bout_en_bout(tmp_path):
         assert item["named_parts"] == ["2"]
     out = "\n".join(lines)
     assert "réunion citée dans la réponse : 9/10" in out and "bonne réunion @1" in out
+
+
+def test_reunion_d_un_dossier_compare_ne_compte_pas():
+    """Une boucle cite aussi des dossiers comparés : seule la réunion du dossier
+    analysé compte."""
+    text = (
+        "Signé à la réunion 1 (syndic-mercier/reunion-1.transcript.md), comme chez "
+        "un autre client (geometres-blanc/reunion-2.transcript.md)."
+    )
+    assert named_parts(text, SPEC.reference, "syndic-mercier") == ["1"]
+    assert named_parts(text, SPEC.reference) == ["1", "2"]
+    mrae = load_bench_spec(ROOT / "configs" / "profiles" / "mrae").reference
+    assert named_parts(
+        "Dossier Brissy/02_EIE - Tome 4 - Milieu naturel", mrae, "Dossier Brissy"
+    ) == ["4"]
+
+
+def test_banc_ventes_par_la_boucle(tmp_path):
+    """--agent sur les 10 dossiers : la boucle lit chaque dossier, compare, et
+    sa réponse cite la réunion 2 du dossier analysé."""
+    import json
+    import sys
+
+    sys.path.insert(0, str(ROOT / "tests"))
+    from test_agent_ventes import FakeLLM
+    from test_answer import ScaledReranker
+    from test_index_pipeline import Setup
+
+    from luciole.evaluation.bench import main
+
+    s = Setup(tmp_path, corpus=BENCH / "dossiers")
+    s.pipeline.run(s.root)
+    llm = FakeLLM(text="Décidé à la deuxième réunion (reunion-2.transcript.md).")
+    try:
+        code = main(
+            [
+                "--profile",
+                "ventes",
+                "--hardware",
+                "cpu",
+                "--store",
+                str(s.store.path),
+                "--reference",
+                str(BENCH / "reference.jsonl"),
+                "--report",
+                str(tmp_path / "rapport.json"),
+                "--agent",
+                "--runs",
+                "1",
+            ],
+            log=lambda line: None,
+            embedder_factory=lambda spec, hw: s.embedder,
+            reranker_factory=lambda spec, hw: ScaledReranker(),
+            qdrant=s.qdrant,
+            opensearch=s.opensearch,
+            llm_factory=lambda hw, gen: llm,
+        )
+    finally:
+        s.store.close()
+    assert code == 0
+    rep = json.loads((tmp_path / "rapport.json").read_text("utf-8"))
+    summary = rep["runs"][0]["summary"]
+    assert rep["mode"] == "boucle"
+    assert summary["tome_cite"] == 9 and summary["tome_fourni"] == 10
+    assert summary["esquives"] == 0
+    # 28 réunions extraites une à une, puis une rédaction par dossier.
+    assert sum(c["schema"] for c in llm.calls) == 28 and len(llm.calls) == 38

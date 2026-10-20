@@ -1,6 +1,6 @@
 # Prompts du cas d'usage « ventes » (assistant des commerciaux). Champs du
-# gabarit « answer » : {question}, {passages} ; une accolade littérale
-# s'écrit doublée.
+# gabarit « answer » : {question}, {passages}, {framing} ; une accolade
+# littérale s'écrit doublée.
 system: |
   Tu es Luciole, un assistant pour les commerciaux. Tu lis des comptes
   rendus et des transcriptions de réunions client.
@@ -11,6 +11,8 @@ system: |
   Si les extraits ne suffisent pas, dis ce qu'ils contiennent de plus proche,
   avec leurs sources, puis en une phrase ce qui manque.
 answer: |
+  {framing}
+
   EXTRAITS DES RÉUNIONS :
   {passages}
 
@@ -23,3 +25,54 @@ answer: |
 no_results: |
   Aucun extrait de réunion ne correspond à cette question. Vérifier que les
   dossiers sont indexés, ou reformuler la question.
+
+# -----------------------------------------------------------------------------
+# Boucle (étape 5c) : signaux de chaque réunion, cadrage de la rédaction.
+# -----------------------------------------------------------------------------
+extract:
+  signaux_reunion:
+    system: |
+      Tu lis la transcription d'une réunion entre un commercial et un client.
+      Tu réponds uniquement par un objet JSON valide, sans commentaire ni
+      balise.
+    prompt: |
+      Réunion ({source}) :
+      """
+      {document}
+      """
+
+      Relève, avec les mots de la transcription :
+      - "objections" : les freins ou réserves exprimés par le client (prix,
+        technique, organisation, concurrence, calendrier…), un par élément ;
+        liste vide s'il n'y en a pas.
+      - "engagements" : ce que chaque partie s'engage à faire, un par élément.
+      - "decideurs" : les personnes du client qui décident ou valident, telles
+        que nommées dans la réunion ; liste vide si aucune n'est nommée.
+      - "prochaine_etape" : ce qui est convenu pour la suite, en une phrase ;
+        « aucune » si rien n'est convenu.
+      - "tonalite" : "positive", "neutre" ou "negative", selon ce que le
+        client dit de la suite du projet.
+
+      N'invente rien qui ne soit pas dans la transcription.
+    fields:
+      objections: list
+      engagements: list
+      decideurs: list
+      prochaine_etape: string
+      tonalite: [positive, neutre, negative]
+
+# Cadrages ajoutés à la rédaction ({framing} du gabarit answer), dans l'ordre
+# du nœud « expliquer ».
+framing:
+  dossier: |
+    DOSSIER ANALYSÉ : {dossier_id} ({client}, produit {produit}, commercial {commercial}).
+    Issue du dossier à ce jour : {issue}.
+    Explique ce qui, réunion après réunion, a conduit à cette issue, en
+    citant chaque réunion par son fichier. Les extraits d'autres dossiers ne
+    servent qu'à comparer : ne les confonds pas avec le dossier analysé.
+
+    SIGNAUX RELEVÉS PAR RÉUNION (à vérifier dans les extraits) :
+  signaux_reunion: |
+    - {source} : objections {objections} ; engagements {engagements} ; décideurs {decideurs} ; suite : {prochaine_etape} ; tonalité {tonalite}.
+  comparables: |
+    DOSSIERS COMPARABLES ({filtre}) : {comptes}. Dossiers : {dossiers}.
