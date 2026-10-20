@@ -1,0 +1,89 @@
+/* Styles communs des pages de Luciole (chat, puis admin et éditeur). */
+:root {
+  --bg: #f6f7f9;
+  --surface: #ffffff;
+  --text: #1d2330;
+  --muted: #5d6675;
+  --border: #d9dde4;
+  --accent: #2f5fb3;
+  --ok: #1f7a4a;
+  --warn: #9a6200;
+  --bad: #b3261e;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #14171c;
+    --surface: #1d2128;
+    --text: #e6e9ee;
+    --muted: #9aa3b2;
+    --border: #333a45;
+    --accent: #7fa6ef;
+    --ok: #5cc48c;
+    --warn: #e0a640;
+    --bad: #f08a80;
+  }
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.bar {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.bar h1 { margin: 0; font-size: 1.2rem; }
+main { max-width: 960px; margin: 0 auto; padding: 1rem; }
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+.row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; margin: 0.5rem 0; }
+fieldset.row { border: 0; padding: 0; }
+legend { font-weight: 600; margin-right: 0.5rem; float: left; }
+label { font-weight: 600; }
+fieldset label { font-weight: normal; }
+select, textarea, button { font: inherit; color: inherit; }
+select, textarea {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.5rem;
+}
+textarea { display: block; width: 100%; margin-top: 0.25rem; resize: vertical; }
+button {
+  background: var(--accent);
+  color: var(--surface);
+  border: 0;
+  border-radius: 6px;
+  padding: 0.45rem 1.1rem;
+  cursor: pointer;
+}
+button:disabled { opacity: 0.55; cursor: wait; }
+.muted { color: var(--muted); font-size: 0.9em; }
+.hint { margin-left: auto; }
+a { color: var(--accent); }
+
+.exchange .question { font-weight: 600; margin: 0 0 0.5rem; }
+.meta { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; margin-bottom: 0.5rem; }
+.verdict { font-weight: 700; font-size: 0.85em; letter-spacing: 0.02em; }
+.verdict.SUFFISANT { color: var(--ok); }
+.verdict.PARTIEL { color: var(--warn); }
+.verdict.INSUFFISANT, .verdict.ERREUR { color: var(--bad); }
+.answer { white-space: pre-wrap; overflow-wrap: anywhere; }
+details { margin-top: 0.75rem; }
+summary { cursor: pointer; color: var(--muted); }
+.path { display: flex; flex-wrap: wrap; gap: 0.25rem 1.5rem; padding-left: 1.25rem; }
+.rules li, .citations li { margin: 0.2rem 0; overflow-wrap: anywhere; }
+.citations .seen { color: var(--muted); }
+code { font-size: 0.9em; }

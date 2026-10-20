@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Luciole — chat</title>
+  <link rel="stylesheet" href="luciole.css">
+</head>
+<body>
+  <header class="bar">
+    <h1>Luciole</h1>
+    <span id="health" class="muted">connexion à l'API…</span>
+  </header>
+
+  <main>
+    <form id="ask" class="card" autocomplete="off">
+      <div class="row">
+        <label for="use-case">Cas d'usage</label>
+        <select id="use-case" required></select>
+        <span id="use-case-description" class="muted"></span>
+      </div>
+      <fieldset class="row">
+        <legend>Mode</legend>
+        <label><input type="radio" name="mode" value="agent" checked> Boucle du cas d'usage</label>
+        <label><input type="radio" name="mode" value="rag"> RAG seul</label>
+        <span id="loop-status" class="muted"></span>
+      </fieldset>
+      <label for="question">Question</label>
+      <textarea id="question" rows="3" required
+        placeholder="Exemple : Pourquoi le dossier de l'Office notarial Girard a-t-il été perdu ?"></textarea>
+      <div class="row">
+        <button id="send" type="submit">Demander</button>
+        <span id="waiting" class="muted" hidden></span>
+        <span class="muted hint">Ctrl + Entrée pour envoyer</span>
+      </div>
+    </form>
+
+    <section id="history" aria-live="polite"></section>
+  </main>
+
+  <template id="exchange">
+    <article class="card exchange">
+      <p class="question"></p>
+      <div class="meta">
+        <span class="verdict"></span>
+        <span class="mode muted"></span>
+        <span class="duration muted"></span>
+        <a class="trace muted" target="_blank" rel="noopener">trace</a>
+      </div>
+      <div class="answer"></div>
+      <details class="loop" hidden>
+        <summary>Chemin dans la boucle</summary>
+        <ol class="path"></ol>
+        <p class="stopped muted"></p>
+        <ul class="rules"></ul>
+      </details>
+      <details class="sources" open>
+        <summary>Sources</summary>
+        <ul class="citations"></ul>
+      </details>
+    </article>
+  </template>
+
+  <script src="chat.js"></script>
+</body>
+</html>
